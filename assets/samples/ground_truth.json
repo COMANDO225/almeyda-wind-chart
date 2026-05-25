@@ -1,0 +1,119 @@
+{
+  "_meta": {
+    "description": "Anotaciones manuales corregidas tras feedback del usuario. Sirven como ground truth para validar el pipeline de visión.",
+    "annotated_by": "manual (Claude re-leyendo las imágenes con HUDs correctos)",
+    "correction_notes": [
+      "ÁNGULO: cajilla negra semitransparente del HUD inferior-izquierdo (formato 'LAST XX YY' donde YY grande amarillo es el ángulo actual). Es ROI FIJA, no flotante sobre el mobile.",
+      "POTENCIA: barra roja horizontal en el HUD inferior, debajo de la cajilla del ángulo. NO hay número — se mide el % del contorno lleno de rojo.",
+      "VIENTO: círculo arriba al centro con número entero al medio + flecha 360° semitransparente alrededor que indica dirección.",
+      "TIMER: el número rojo grande arriba-derecha Y el número azul/amarillo en el cartel sobre el mobile activo son AMBOS el contador del turno (van descontando). NO son el ángulo.",
+      "Las posiciones de los mobiles SÍ son variables (a veces izquierda, a veces derecha)."
+    ],
+    "convention": {
+      "wind_dir_deg": "0=derecha, 90=abajo, 180=izquierda, 270=arriba (horario)",
+      "power_pct": "estimación a ojo de la fracción de la barra roja horizontal cubierta"
+    },
+    "all_captures_use_same": {
+      "map": "aero (Aeropuerto / Steampunk)",
+      "self_mobile": "trico (jinete sobre dinosaurio verde/amarillo, jugador AjiSecO)"
+    }
+  },
+  "samples": [
+    {
+      "file": "01_aero_trico-vs-armor_a50_p30_w04_thunder-fx.png",
+      "angle_deg": 50,
+      "power_pct": 30,
+      "wind": { "value": 4, "dir_deg_approx": 200 },
+      "turn_timer": 16,
+      "active_turn": "trico",
+      "enemy_mobile": "armor",
+      "self_position_px_approx": { "x": 470, "y": 220 },
+      "enemy_position_px_approx": { "x": 200, "y": 250 },
+      "fx_in_frame": ["thunder vertical azul al centro"]
+    },
+    {
+      "file": "02_aero_trico-vs-armor_a77_p75_w02.png",
+      "angle_deg": 77,
+      "power_pct": 75,
+      "wind": { "value": 2, "dir_deg_approx": 90 },
+      "turn_timer": 16,
+      "active_turn": "trico",
+      "enemy_mobile": "armor",
+      "self_position_px_approx": { "x": 410, "y": 220 },
+      "enemy_position_px_approx": { "x": 175, "y": 235 },
+      "fx_in_frame": []
+    },
+    {
+      "file": "03_aero_trico-vs-armor_a70_p95_w06.png",
+      "angle_deg": 70,
+      "power_pct": 95,
+      "wind": { "value": 6, "dir_deg_approx": 90 },
+      "turn_timer": null,
+      "active_turn": "trico",
+      "enemy_mobile": "armor",
+      "self_position_px_approx": { "x": 450, "y": 215 },
+      "enemy_position_px_approx": { "x": 245, "y": 250 },
+      "fx_in_frame": ["mensajes de bonus apilados arriba-izquierda"]
+    },
+    {
+      "file": "04_aero_trico-vs-armor_a61_p10_w23_drone-fx.png",
+      "angle_deg": 61,
+      "power_pct": 10,
+      "wind": { "value": 23, "dir_deg_approx": 290 },
+      "turn_timer": 15,
+      "active_turn": "trico",
+      "enemy_mobile": "armor",
+      "self_position_px_approx": { "x": 145, "y": 230 },
+      "enemy_position_px_approx": { "x": 535, "y": 280 },
+      "fx_in_frame": ["drone aliado"]
+    },
+    {
+      "file": "05_aero_trico-vs-armor_a74_p25_w24_drone-fx.png",
+      "angle_deg": 74,
+      "power_pct": 25,
+      "wind": { "value": 24, "dir_deg_approx": 300 },
+      "turn_timer": 18,
+      "active_turn": "trico",
+      "enemy_mobile": "armor",
+      "self_position_px_approx": { "x": 130, "y": 245 },
+      "enemy_position_px_approx": { "x": 480, "y": 210 },
+      "fx_in_frame": ["drone disparando misil"]
+    },
+    {
+      "file": "06_aero_trico-vs-armor_a69_p90_w04_drone-fx.png",
+      "angle_deg": 69,
+      "power_pct": 90,
+      "wind": { "value": 4, "dir_deg_approx": 270 },
+      "turn_timer": 17,
+      "active_turn": "trico",
+      "enemy_mobile": "armor",
+      "self_position_px_approx": { "x": 130, "y": 240 },
+      "enemy_position_px_approx": { "x": 415, "y": 235 },
+      "fx_in_frame": ["drone activo"]
+    },
+    {
+      "file": "07_aero_trico-vs-bike_a71_p50_w19_tornado-fx.png",
+      "angle_deg": 71,
+      "power_pct": 50,
+      "wind": { "value": 19, "dir_deg_approx": 270 },
+      "turn_timer": 14,
+      "active_turn": "trico",
+      "enemy_mobile": "bike",
+      "self_position_px_approx": { "x": 130, "y": 215 },
+      "enemy_position_px_approx": { "x": 510, "y": 250 },
+      "fx_in_frame": ["tornado vertical naranja al centro"]
+    },
+    {
+      "file": "08_aero_trico-vs-bike_a79_p100_w25.png",
+      "angle_deg": 79,
+      "power_pct": 100,
+      "wind": { "value": 25, "dir_deg_approx": 290 },
+      "turn_timer": 18,
+      "active_turn": "trico",
+      "enemy_mobile": "bike",
+      "self_position_px_approx": { "x": 110, "y": 215 },
+      "enemy_position_px_approx": { "x": 460, "y": 245 },
+      "fx_in_frame": ["mensaje rojo 'Penalidad por Abuso Especial'"]
+    }
+  ]
+}

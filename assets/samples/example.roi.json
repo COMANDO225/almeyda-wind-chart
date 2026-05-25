@@ -1,0 +1,7 @@
+{
+  "_comment": "ROIs aproximadas para una ventana del juego ~597x456 px (tamaño de las capturas en assets/samples/). Reajustar para la resolución real de tu pestaña del navegador. En Fase 1+ Tauri permitirá calibrarlas arrastrando los marcadores de esquina y la cajita de la barra de fuerza.",
+  "game_area":       { "x": 0,   "y": 0,   "w": 597, "h": 456 },
+  "wind_indicator":  { "x": 275, "y": 0,   "w": 60,  "h": 55  },
+  "angle_hud":       { "x": 150, "y": 378, "w": 80,  "h": 32  },
+  "power_bar":       { "x": 240, "y": 413, "w": 275, "h": 22  }
+}

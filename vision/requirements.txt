@@ -1,0 +1,10 @@
+numpy>=1.26
+opencv-python>=4.10
+Pillow>=10.4
+pydantic>=2.9
+
+# OCR — RapidOCR v3 (modelos PaddleOCR sobre ONNX Runtime).
+# Más liviano y rápido que paddleocr+paddlepaddle. La primera ejecución
+# descarga los modelos automáticamente a ~/.cache/rapidocr/.
+rapidocr>=3.4
+onnxruntime>=1.20

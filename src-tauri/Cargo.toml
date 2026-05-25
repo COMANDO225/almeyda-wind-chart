@@ -1,0 +1,31 @@
+[package]
+name = "ai-dragonbound"
+version = "0.0.1"
+description = "Overlay externo con análisis de trayectoria por IA para Dragonbound"
+authors = ["ai-dragonbound contributors"]
+edition = "2021"
+
+[lib]
+name = "ai_dragonbound_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+tauri-plugin-store = "2"
+tauri-plugin-log = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+base64 = "0.22"
+
+# Captura de pantalla por región (cross-platform).
+xcap = "0.0.14"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Logging — usamos `log` (compatible con tauri-plugin-log que lo expone
+# unificado a frontend + archivo + stdout).

@@ -1,0 +1,55 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Modelos OCR descargados on-demand (~15 MB)
+vision/models/*.onnx
+vision/models/*.pt
+vision/models/*.pth
+
+# --- Node / Svelte / Vite ---
+node_modules/
+/build
+/.svelte-kit
+/package
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# --- Rust / Tauri ---
+src-tauri/target/
+# Cargo.lock SÍ se commitea — somos una app, no lib (reproducibilidad)
+# (no excluir Cargo.lock)
+
+# --- Logs y debug runtime ---
+tauri-dev.log
+tauri-dev.log.err
+*.log.err
+assets/samples/_debug/
+
+# --- Capturas privadas del usuario ---
+# Las screenshots con info del juego no se publican.
+# Pero el hud_reference.png anotado en assets/docs/ SÍ se commitea.
+assets/samples/*.png
+assets/samples/Screenshot*
+# Permitir el ground truth + roi config:
+!assets/samples/.gitkeep
+!assets/samples/ground_truth.json
+!assets/samples/example.roi.json
+
+# --- IDE ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+
+# --- Backups (mientras setup) ---
+*.backup
+*.backup.md
