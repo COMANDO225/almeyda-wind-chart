@@ -38,6 +38,7 @@ assets/samples/_debug/
 # Pero el hud_reference.png anotado en assets/docs/ SÍ se commitea.
 assets/samples/*.png
 assets/samples/Screenshot*
+!assets/samples/*.png
 # Permitir el ground truth + roi config:
 !assets/samples/.gitkeep
 !assets/samples/ground_truth.json
