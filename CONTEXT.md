@@ -431,7 +431,9 @@ Componentes del HUD que **ignoramos**:
 - **Fase 0** ✅ — Pipeline de visión Python validado sobre capturas estáticas.
 - **Fase 1** 🚧 95% completo — Tauri + 3 ventanas + compás + markers
   redimensionables + loop a 4 FPS + sidecar Python conectado + OCR
-  validado offline. Solo falta confirmar end-to-end con marker en vivo.
+  validado offline. **Falta**: validar end-to-end y resolver problemas de
+  precisión con cursiva / cambios de tema (ver 8.bis).
+- **Fase 8.bis (refactor de precisión)** 👇 — ver detalle abajo.
 - **Fase 2** — Empaquetar el sidecar Python con PyInstaller como
   `external binary` de Tauri, para que el instalador final sea un único
   `.msi/.exe` sin requerir venv del usuario.
@@ -445,6 +447,86 @@ Componentes del HUD que **ignoramos**:
 - **Fase 5** — Polish: hotkeys globales (F8 = pausa, F9 = recalibrar),
   wizard de calibración primera-vez, instalador `.msi` firmado, click-through
   inteligente sobre los markers.
+
+---
+
+## 8.bis. Refactor de precisión (decidido al cierre del MVP)
+
+Tras probar en juego real, identificamos limitaciones:
+- Confusión en lectura de **ángulo** (cursiva del juego confunde RapidOCR).
+- Falsa orientación del **puntero del viento** cuando la aguja no es roja saturada.
+- **Dependencia frágil** de masks yellow/green: con temas del juego
+  (Halloween, Navidad, etc.) los colores cambian y se rompe.
+
+Decisión acordada con el usuario:
+
+### Sprint A — Refactor UI y separación de responsabilidades (~1 día)
+
+1. **marker_wind circular** (`border-radius: 50%`). En Rust `capture.rs`,
+   aplicar máscara circular al PNG antes de mandarlo al detector para que
+   la zona fuera del círculo quede negra y no aporte ruido.
+2. **Sub-marker NÚMERO** dentro del círculo del viento — cuadrado pequeño
+   que solo lee el dígito central, no se mezcla con el puntero.
+3. **Detector PUNTERO independiente** — opera sobre el círculo completo
+   con **geometría pura** (sin colores): asimetría radial / Hough lines /
+   momento de bordes. Inmune a cambios de tema.
+4. **Filtrar el "°"** en el detector de ángulo por ratio de bounding box
+   (width/height < 0.5 = no es dígito).
+
+### Sprint B — OCR robusto sin colores (~1-2 días, si A no alcanza)
+
+1. Eliminar `_strategy_yellow` y `_strategy_green` de `_ocr.py`. Reemplazar
+   por edges adaptativos (Canny) + contour-based segmentation +
+   binarización local (no Otsu global).
+2. **Segmentación dígito por dígito** antes de OCR: separar `77` en dos
+   imágenes individuales, leer cada una.
+3. **Deskewing** por carácter (shear inverso) para corregir la cursiva.
+
+### Sprint C — CNN custom que reemplaza RapidOCR (~3-5 días)
+
+Decisión del usuario: **reemplazo total**, no fallback. Razones:
+- RapidOCR pesa ~200 MB. Una CNN para 10 clases (0-9) pesa ~5 MB.
+- RapidOCR es ~50-200 ms por inferencia. CNN ~1 ms.
+- RapidOCR está entrenado para texto general; nuestro problema son
+  10 clases con augmentation razonable.
+
+**Dataset**: usuario va a recolectar **30-50 capturas variadas** en
+distintos temas, lo que da ~150-400 dígitos reales etiquetados. Con
+augmentation (rotación ±5°, scale ±10%, brightness, **shear para
+cursiva**, noise) son ~1500-4000 muestras efectivas — suficiente para
+~98% accuracy.
+
+Pasos:
+1. **`Sprint C.1`** — Hotkey global F1 (`tauri-plugin-global-shortcut`)
+   que captura el contenido visible de cada marker y lo guarda en
+   `assets/dataset/raw/{ts}_{detector}.png`. Permite recolectar mientras
+   jugás.
+2. **`Sprint C.2`** — Tool de etiquetado (`vision/scripts/label_digits.py`):
+   abre cada captura, segmenta por contornos, muestra cada dígito y espera
+   tecla `0-9` para etiquetar (o ESC para descartar). Guarda en
+   `assets/dataset/labeled/{label}/{hash}.png`.
+3. **`Sprint C.3`** — Entrenamiento (`vision/training/train.py`):
+   - Arquitectura: 3 capas conv (16, 32, 64 filters) + 2 FC + softmax(10).
+     ~50k params.
+   - Augmentation con `albumentations`.
+   - Split 80/10/10 train/val/test.
+   - Optimizer Adam, ~30 epochs, target 98%+ test accuracy.
+   - Export a `vision/models/digit_classifier.onnx` con `torch.onnx.export`.
+4. **`Sprint C.4`** — Drop-in en `_ocr.py`:
+   - Reemplazar `_ocr_text_with_score` por inferencia ONNX Runtime sobre la
+     CNN.
+   - Misma firma de `read_digits()` para que `detectors/{wind,angle}.py`
+     no cambien.
+   - Quitar `rapidocr` y `paddlepaddle` de `requirements.txt`.
+
+### Criterios de éxito del refactor
+
+- En vivo (no offline), apuntar marker sobre el HUD del juego en
+  cualquier tema y leer correctamente ángulo y viento >= 95% de los
+  turnos.
+- Inferencia total (captura + CNN + emit) < 50 ms por frame (vs ~200 ms
+  hoy con RapidOCR).
+- Bundle final ~150 MB menos (sin paddle / rapidocr).
 
 ---
 
