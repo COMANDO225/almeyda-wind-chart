@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-store = "2"
 tauri-plugin-log = "2"
+tauri-plugin-global-shortcut = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,6 +27,9 @@ base64 = "0.22"
 # Captura de pantalla por región (cross-platform).
 xcap = "0.0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Timestamps para nombrar samples del dataset.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # Logging — usamos `log` (compatible con tauri-plugin-log que lo expone
 # unificado a frontend + archivo + stdout).

@@ -1,25 +1,25 @@
-﻿//! Loop de detecciÃ³n automÃ¡tica a 4 FPS.
+//! Loop de deteccion automatica a 4 FPS.
 //!
 //! Cada 250 ms:
 //!   1. Lee el rect LOCAL de cada marker desde `AppState`.
-//!   2. Suma la posiciÃ³n/escala de la ventana correspondiente para obtener
-//!      el rect ABSOLUTO en pixels fÃ­sicos de pantalla.
-//!   3. Captura esa regiÃ³n y la manda al sidecar Python.
-//!   4. Emite eventos `detection:wind` / `detection:angle` al frontend.
-//!
-//! Se inicia automÃ¡ticamente al arrancar â€” no hay botÃ³n Start/Stop.
+//!   2. Suma la posicion/escala de la ventana correspondiente para obtener
+//!      el rect ABSOLUTO en pixels fisicos de pantalla.
+//!   3. Captura esa region (con mascara circular si corresponde) y la manda
+//!      al sidecar Python.
+//!   4. Emite eventos `detection:wind` (value + direction) / `detection:angle`
+//!      al frontend.
 
 use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::capture::capture_region_png;
+use crate::capture::{capture_region_png, CaptureShape};
 use crate::sidecar::Sidecar;
 use crate::state::{AppState, Rect};
 
 pub async fn start<R: Runtime>(app: AppHandle<R>) {
-    log::info!("loop de detecciÃ³n arrancando (4 FPS)");
+    log::info!("loop de deteccion arrancando (4 FPS)");
     let sidecar = Sidecar::new();
     let mut frame_id: u64 = 0;
     let mut ticker = tokio::time::interval(Duration::from_millis(250));
@@ -37,15 +37,23 @@ pub async fn start<R: Runtime>(app: AppHandle<R>) {
 
         if let Some(local) = wind_local {
             if let Some(abs) = local_to_absolute(&app, "marker_wind", local) {
-                if let Err(e) = process_one(&app, &sidecar, "wind", abs, frame_id).await {
-                    log::debug!("wind detect fallÃ³ (frame {frame_id}): {e}");
+                // marker_wind: circular. El sidecar corre DOS FLUJOS sobre el
+                // mismo frame: detector de puntero (rapido, geometria) +
+                // detector del numero (OCR sobre el centro). Una sola
+                // respuesta combinada (value + direction_deg).
+                if let Err(e) =
+                    process_one(&app, &sidecar, "wind", abs, CaptureShape::Circle, frame_id).await
+                {
+                    log::debug!("wind detect fallo (frame {frame_id}): {e}");
                 }
             }
         }
         if let Some(local) = angle_local {
             if let Some(abs) = local_to_absolute(&app, "marker_angle", local) {
-                if let Err(e) = process_one(&app, &sidecar, "angle", abs, frame_id).await {
-                    log::debug!("angle detect fallÃ³ (frame {frame_id}): {e}");
+                if let Err(e) =
+                    process_one(&app, &sidecar, "angle", abs, CaptureShape::Rect, frame_id).await
+                {
+                    log::debug!("angle detect fallo (frame {frame_id}): {e}");
                 }
             }
         }
@@ -73,9 +81,10 @@ async fn process_one<R: Runtime>(
     sidecar: &Sidecar,
     detector: &str,
     rect: Rect,
+    shape: CaptureShape,
     frame_id: u64,
 ) -> anyhow::Result<()> {
-    let png = tokio::task::spawn_blocking(move || capture_region_png(rect)).await??;
+    let png = tokio::task::spawn_blocking(move || capture_region_png(rect, shape)).await??;
     let resp = sidecar.detect(detector, frame_id, &png).await?;
     match detector {
         "wind" => {
@@ -96,4 +105,3 @@ async fn process_one<R: Runtime>(
     }
     Ok(())
 }
-

@@ -69,10 +69,13 @@ def cmd_serve(args: argparse.Namespace) -> int:  # noqa: ARG001
     """Loop sidecar. Una línea de stdin = un mensaje JSON, una línea de stdout = una respuesta JSON.
 
     Formato del mensaje (lo que manda Tauri/Rust):
-        {"type": "frame", "detector": "wind"|"angle", "frame_id": int, "png_b64": str}
+        {"type": "frame",
+         "detector": "wind" | "angle",
+         "frame_id": int, "png_b64": str}
 
-    El PNG viene YA RECORTADO al ROI del marker — no necesitamos config de
-    ROIs. Cada frame trae el detector que se le aplica.
+    El PNG viene YA RECORTADO al ROI del marker. Cada frame trae el detector
+    que se le aplica. Para "wind", el sidecar ejecuta DOS FLUJOS sobre el
+    mismo frame circular: puntero + numero, y devuelve ambos resultados.
 
     Respuesta (lo que Rust deserializa en `DetectResponse`):
         {"wind":  {"value": int|null, "direction_deg": float|null, "confidence": float}}
@@ -80,6 +83,7 @@ def cmd_serve(args: argparse.Namespace) -> int:  # noqa: ARG001
     """
     from .detectors import angle as angle_det
     from .detectors import wind as wind_det
+    from .detectors import wind_number as wind_num_det
 
     for raw in sys.stdin:
         raw = raw.strip()
@@ -103,11 +107,17 @@ def cmd_serve(args: argparse.Namespace) -> int:  # noqa: ARG001
 
         response: dict = {}
         if detector == "wind":
-            r = wind_det.detect(frame)
+            # DOS FLUJOS SOBRE EL MISMO FRAME:
+            #   - puntero: geometria pura, sin OCR (instantaneo)
+            #   - numero: OCR sobre el centro del circulo
+            # Ambos rapidos, combinamos resultados en un solo WindReading.
+            pointer = wind_det.detect(frame)
+            number = wind_num_det.detect(frame)
+            conf_parts = [c for c in (pointer.confidence, number.confidence) if c > 0]
             response["wind"] = {
-                "value": r.value,
-                "direction_deg": r.direction_deg,
-                "confidence": r.confidence,
+                "value": number.value,
+                "direction_deg": pointer.direction_deg,
+                "confidence": sum(conf_parts) / len(conf_parts) if conf_parts else 0.0,
             }
         elif detector == "angle":
             r = angle_det.detect(frame)

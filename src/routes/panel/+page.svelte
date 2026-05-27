@@ -6,12 +6,14 @@
   import {
     onWind,
     onAngle,
-    setMarkerRect,
     type WindReading,
     type AngleReading,
   } from "$lib/ipc";
 
-  let wind = $state<WindReading | null>(null);
+  // marker_wind emite un WindReading con AMBOS campos (value + direction_deg)
+  // porque el sidecar corre los 2 flujos internos sobre el mismo frame.
+  let windValue = $state<number | null>(null);
+  let windDirection = $state<number | null>(null);
   let angle = $state<AngleReading | null>(null);
   let mobile = $state("armor");
 
@@ -21,30 +23,21 @@
     let unWind: (() => void) | undefined;
     let unAngle: (() => void) | undefined;
     (async () => {
-      unWind = await onWind((w) => (wind = w));
+      unWind = await onWind((w) => {
+        if (w.value !== null && w.value !== undefined) {
+          windValue = w.value;
+        }
+        if (w.direction_deg !== null && w.direction_deg !== undefined) {
+          windDirection = w.direction_deg;
+        }
+      });
       unAngle = await onAngle((a) => (angle = a));
-
-      // Sincronizar el rect actual de cada marker al state del backend (en
-      // caso de que sea la primera ejecución sin posiciones persistidas).
-      try {
-        await pushMarkerRect("wind");
-        await pushMarkerRect("angle");
-      } catch (e) {
-        console.warn("push initial marker rects falló", e);
-      }
     })();
     return () => {
       unWind?.();
       unAngle?.();
     };
   });
-
-  async function pushMarkerRect(name: "wind" | "angle") {
-    // El frontend no tiene acceso directo a la ventana hermana; en una
-    // próxima iteración el backend Rust monitoreará los movimientos. Por
-    // ahora dejamos esta función como hook para futuras llamadas.
-    void name;
-  }
 
   async function closeApp() {
     await getCurrentWindow().close();
@@ -58,7 +51,7 @@
   </header>
 
   <section class="compass-wrap">
-    <WindCompass value={wind?.value ?? null} directionDeg={wind?.direction_deg ?? null} />
+    <WindCompass value={windValue} directionDeg={windDirection} />
   </section>
 
   <section class="info">

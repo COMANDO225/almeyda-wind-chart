@@ -44,6 +44,12 @@ assets/samples/Screenshot*
 !assets/samples/ground_truth.json
 !assets/samples/example.roi.json
 
+# Dataset de entrenamiento de la CNN (privado, capturas del juego del usuario).
+# Las muestras crudas y etiquetadas se quedan en local; solo se versionan los
+# scripts y el modelo entrenado .onnx (cuando exista).
+assets/dataset/raw/
+assets/dataset/labeled/
+
 # --- IDE ---
 .vscode/*
 !.vscode/extensions.json

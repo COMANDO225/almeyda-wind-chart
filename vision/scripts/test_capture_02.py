@@ -47,22 +47,27 @@ def main() -> int:
     print(f"ROIs guardadas en {out_dir}")
 
     from vision.detectors.angle import detect as detect_angle
-    from vision.detectors.wind import detect as detect_wind
+    from vision.detectors.wind import detect as detect_wind  # solo direccion
+    from vision.detectors.wind_number import detect as detect_wind_num  # solo numero
 
     print("\n--- Detector de angulo ---")
     angle = detect_angle(angle_roi)
     print(f"  Esperado: 77")
     print(f"  Detectado: {angle.angle_deg} (confianza={angle.confidence:.2f})")
 
-    print("\n--- Detector de viento ---")
-    wind = detect_wind(wind_roi)
+    print("\n--- Detectores de viento (DOS FLUJOS sobre el mismo frame) ---")
+    wind_dir = detect_wind(wind_roi)        # geometria (puntero)
+    wind_val = detect_wind_num(wind_roi)    # OCR (numero)
     print(f"  Esperado: valor=2, dir~90 grados (sur)")
-    print(f"  Detectado: valor={wind.value} dir={wind.direction_deg} (conf={wind.confidence:.2f})")
+    print(
+        f"  Detectado: valor={wind_val.value} (conf={wind_val.confidence:.2f}) "
+        f"dir={wind_dir.direction_deg} (conf={wind_dir.confidence:.2f})"
+    )
 
     ok_angle = angle.angle_deg == 77
-    ok_wind = wind.value == 2
+    ok_wind = wind_val.value == 2
     print(f"\n{'PASS' if ok_angle else 'FAIL'} angulo (esperado 77, leido {angle.angle_deg})")
-    print(f"{'PASS' if ok_wind else 'FAIL'} viento (esperado 2, leido {wind.value})")
+    print(f"{'PASS' if ok_wind else 'FAIL'} viento (esperado 2, leido {wind_val.value})")
     return 0 if (ok_angle and ok_wind) else 2
 
 

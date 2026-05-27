@@ -73,6 +73,20 @@ def _strategy_brightness(bgr: np.ndarray) -> np.ndarray:
     return bin_
 
 
+def _strategy_edges(gray: np.ndarray) -> np.ndarray:
+    """Canny edges + dilate + invert.
+
+    Independiente de COLOR — solo usa gradientes. Robusto contra cambios
+    de tema del juego (Halloween, Navidad, etc.). Devuelve "texto negro
+    sobre fondo blanco" que es lo que prefiere el OCR.
+    """
+    edges = cv2.Canny(gray, 50, 150)
+    kernel = np.ones((2, 2), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
+    # Invertir: edges blancos sobre negro → digitos negros sobre blanco.
+    return cv2.bitwise_not(dilated)
+
+
 def _strategy_yellow(bgr: np.ndarray) -> np.ndarray:
     """Produce 'texto negro sobre fondo blanco' aislando amarillo del HUD."""
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
@@ -91,6 +105,78 @@ def _strategy_green(bgr: np.ndarray) -> np.ndarray:
     out = np.full(mask.shape, 255, dtype=np.uint8)
     out[mask > 0] = 0
     return out
+
+
+def auto_crop_digits(
+    bgr: np.ndarray, padding: int = 4, drop_short_ratio: float = 0.6
+) -> Optional[np.ndarray]:
+    """Recorta al bbox de los DIGITOS, descartando caracteres mas bajos.
+
+    Detecta contornos del texto con Otsu + findContours. Descarta los
+    contornos cuya altura sea menor que ``drop_short_ratio`` veces la
+    altura del contorno mas alto — esto elimina el simbolo "°" del HUD
+    de angulo del juego (el ° es chiquito y vive arriba del numero, no
+    es un digito).
+
+    Resultado: una version del bgr recortada solo a los digitos. Si no
+    encuentra contornos validos, devuelve None.
+
+    Es **independiente de color** (B.1).
+    """
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+    # Otsu binarizacion. Si el resultado tiene fondo blanco mayoritario,
+    # lo invertimos para que findContours encuentre el texto como blob.
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if binary.mean() > 127:
+        binary = cv2.bitwise_not(binary)
+
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    boxes = []
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        # Descartar ruido (muy chico).
+        if w < 3 or h < 5 or w * h < 15:
+            continue
+        # Aspect ratio "tipo digito": los digitos del HUD del juego son
+        # mas o menos cuadrados (0.3 a 1.2 ancho/alto). Esto descarta:
+        #   - bordes verticales de cajillas (ratio ~0.05)
+        #   - bordes horizontales / lineas (ratio > 2)
+        #   - simbolos angostos como "I" o "|" del HUD
+        ar = w / max(1, h)
+        if ar < 0.30 or ar > 1.5:
+            continue
+        # Tambien filtramos contornos que ocupen MUY poca area del bbox
+        # (formas degeneradas no son digitos).
+        area_ratio = float(cv2.contourArea(c)) / max(1, w * h)
+        if area_ratio < 0.15:
+            continue
+        boxes.append((x, y, w, h))
+
+    if not boxes:
+        return None
+
+    # Filtrar por altura: los digitos son los contornos mas altos.
+    # El "°" del HUD del angulo siempre es mucho mas bajo.
+    max_h = max(b[3] for b in boxes)
+    boxes = [b for b in boxes if b[3] >= max_h * drop_short_ratio]
+    if not boxes:
+        return None
+
+    x0 = min(b[0] for b in boxes)
+    y0 = min(b[1] for b in boxes)
+    x1 = max(b[0] + b[2] for b in boxes)
+    y1 = max(b[1] + b[3] for b in boxes)
+    h, w = bgr.shape[:2]
+    x0 = max(0, x0 - padding)
+    y0 = max(0, y0 - padding)
+    x1 = min(w, x1 + padding)
+    y1 = min(h, y1 + padding)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return bgr[y0:y1, x0:x1].copy()
 
 
 def auto_crop_color(
@@ -180,12 +266,18 @@ def read_digits(
     min_value: int = 0,
     max_value: int = 999,
     color: Optional[str] = None,
+    crop_digits: bool = False,
     debug_tag: str = "",
 ) -> tuple[Optional[int], float]:
     """Aísla dígitos de una imagen pequeña probando múltiples preprocesados.
 
     ``color``: si se pasa "yellow" o "green", añade un strategy específico
-    para ese color además de los strategies generales (más robusto).
+    para ese color además de los strategies generales (deprecated en B.1 —
+    preferir ``crop_digits=True``).
+
+    ``crop_digits``: si True, aplica ``auto_crop_digits`` antes de procesar
+    para descartar caracteres "bajos" como el "°" del HUD del angulo. Es
+    independiente de color (B.1).
     """
     if img_bgr is None or img_bgr.size == 0:
         return None, 0.0
@@ -194,13 +286,20 @@ def read_digits(
     else:
         bgr = img_bgr.copy()
 
-    # Si se pasó un color, intentar auto-recortar a la zona de ese color ANTES
-    # de upscalear. Esto resuelve el caso "ROI grande con texto pequeño".
+    # A.4 + B.1: crop por contornos (descarta "°" y otros caracteres bajos).
+    if crop_digits:
+        cropped = auto_crop_digits(bgr, padding=6)
+        if cropped is not None and cropped.size:
+            if debug_tag:
+                _debug_save(cropped, f"{debug_tag}_digitcrop")
+            bgr = cropped
+
+    # (Legacy) Si se pasó un color, auto-recortar a esa zona.
     if color in ("yellow", "green"):
         cropped = auto_crop_color(bgr, color, padding=6)
         if cropped is not None and cropped.size:
             if debug_tag:
-                _debug_save(cropped, f"{debug_tag}_autocrop")
+                _debug_save(cropped, f"{debug_tag}_colorcrop")
             bgr = cropped
 
     # Upscale después del auto-crop.
@@ -208,12 +307,15 @@ def read_digits(
         bgr = cv2.resize(bgr, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
+    # Strategies default — independientes de color (B.1).
     candidates: list[tuple[str, np.ndarray]] = [
         ("otsu", _strategy_otsu(gray)),
         ("otsu_inv", _strategy_otsu_inv(gray)),
         ("adaptive", _strategy_adaptive(gray)),
         ("brightness", _strategy_brightness(bgr)),
+        ("edges", _strategy_edges(gray)),  # nuevo en B.1
     ]
+    # Color-specific solo si el caller los pide explicitamente (deprecated).
     if color == "yellow":
         candidates.append(("yellow_mask", _strategy_yellow(bgr)))
     if color == "green":
@@ -222,9 +324,10 @@ def read_digits(
     if debug_tag:
         _debug_save(bgr, f"{debug_tag}_00_upscaled")
 
-    # Acumular votos por valor: cada strategy aporta su score al valor que
-    # leyó. El valor con mayor suma de scores gana — más robusto que solo
-    # tomar el de mayor confianza puntual (que puede ser un falso positivo).
+    # Acumular votos por valor: cada strategy aporta su score AJUSTADO al
+    # valor que leyo. El ajuste penaliza lecturas con caracteres NO-digito
+    # (ej. "C1" tiene fraccion 0.5 → score x 0.5). Mas robusto al voting que
+    # solo tomar el de mayor confianza puntual.
     votes: dict[int, float] = {}
     raw_log: list[tuple[str, str, float]] = []
     for strategy_name, img in candidates:
@@ -240,7 +343,12 @@ def read_digits(
             except ValueError:
                 continue
             if min_value <= val <= max_value:
-                votes[val] = votes.get(val, 0.0) + score
+                # Penalizar lecturas con basura alrededor de los digitos.
+                # Si el OCR ve "C1", queremos peso 0.5 (1 digito / 2 chars).
+                # Si ve "2", peso 1.0. Si ve "12abc", peso 0.4.
+                digit_ratio = len(digits) / max(1, len(txt))
+                adjusted = score * digit_ratio
+                votes[val] = votes.get(val, 0.0) + adjusted
 
     if not votes:
         log.debug("read_digits[%s] → None (raw=%s)", debug_tag or "?", raw_log)

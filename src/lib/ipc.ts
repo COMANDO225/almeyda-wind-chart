@@ -31,6 +31,8 @@ export async function setMarkerRect(name: MarkerName, rect: Rect): Promise<void>
   return invoke<void>("set_marker_rect", { name, rect });
 }
 
+/** marker_wind: el backend corre 2 flujos internos (puntero + numero) y emite
+ *  un WindReading con AMBOS campos llenos (value + direction_deg). */
 export function onWind(handler: (w: WindReading) => void): Promise<UnlistenFn> {
   return listen<WindReading>("detection:wind", (e) => handler(e.payload));
 }

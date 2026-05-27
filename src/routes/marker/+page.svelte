@@ -3,8 +3,10 @@
   import MarkerFrame from "$lib/MarkerFrame.svelte";
 
   const name = $derived(
-    (page.url.searchParams.get("name") ?? "wind") as "wind" | "angle"
+    (page.url.searchParams.get("name") ?? "wind") as "wind" | "angle",
   );
+
+  const label = $derived(name === "wind" ? "WIND" : "ANGLE");
 </script>
 
-<MarkerFrame {name} label={name === "wind" ? "WIND" : "ANGLE"} />
+<MarkerFrame {name} {label} />

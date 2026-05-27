@@ -1,5 +1,5 @@
-﻿//! Estado global de la app y comandos para que el frontend lea/escriba los
-//! rects de los markers, ademÃ¡s de persistencia con `tauri-plugin-store`.
+//! Estado global de la app y comandos para que el frontend lea/escriba los
+//! rects de los markers, ademas de persistencia con `tauri-plugin-store`.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -98,4 +98,3 @@ pub async fn restore_from_store<R: Runtime>(app: &AppHandle<R>) -> anyhow::Resul
     s.angle_rect = angle;
     Ok(())
 }
-

@@ -1,18 +1,27 @@
-"""Detector del medidor de viento.
+"""Flujo del PUNTERO del medidor de viento dentro del marker circular.
 
-El indicador del juego es un círculo en la zona superior con:
-  - Un número entero al centro (magnitud del viento, 0–99).
-  - Una flecha pequeña roja DENTRO del mismo círculo apuntando 360° hacia
-    la dirección del viento. A veces saturada, a veces semitransparente.
+El marker_wind es CIRCULAR con mascara aplicada en Rust (todo lo de afuera
+del circulo viene en negro). Este detector se enfoca SOLO en la direccion
+del puntero — el numero se lee en paralelo en `wind_number.detect()`.
 
-Estrategia de dirección (dos pasadas):
-  1. Aguja roja: máscara HSV de rojo saturado. Si la encuentra, usa el
-     momento de los píxeles para calcular el ángulo.
-  2. Fallback: PCA pesado sobre la desviación del patrón radial. Robusto
-     cuando la aguja es transparente o tiene color cambiante.
+Algoritmo: **detector angular por fan-sweep**.
 
-Estrategia de magnitud: RapidOCR sobre el cuadrado central del círculo
-(donde vive el número), con preprocesado de upscale + Otsu.
+  1. Convertir a grises + blur amplio. Calcular |gray - blur| (desviacion
+     respecto al promedio local). Eso resalta cualquier elemento que rompe
+     la suavidad del fondo (puntero, dígitos, etc.).
+  2. Construir un "fan" angular (sector circular) en el anillo donde
+     suele estar el puntero (35%-49% del radio).
+  3. Rotar el fan en pasos de 2 grados y sumar la deviation dentro. El
+     angulo con mayor suma es la direccion del puntero.
+
+Por que es mejor que centro de masa:
+  - El centro de masa promedia TODA la deviation del anillo, asi que se
+    distorsiona si hay ruido distribuido o partes del numero asoman.
+  - El fan-sweep busca un PICO direccional concentrado — exactamente
+    como se ve un puntero (es una linea/triangulo apuntando hacia un
+    angulo, no un ruido distribuido).
+
+Independiente de tema: no usa colores.
 """
 from __future__ import annotations
 
@@ -23,92 +32,88 @@ import cv2
 import numpy as np
 
 from ..types import WindReading
-from ._ocr import read_digits
 
 log = logging.getLogger(__name__)
 
 
-# Rojo en HSV cruza el 0 — dos rangos.
-RED_LO_1 = np.array([0, 140, 110], dtype=np.uint8)
-RED_HI_1 = np.array([10, 255, 255], dtype=np.uint8)
-RED_LO_2 = np.array([170, 140, 110], dtype=np.uint8)
-RED_HI_2 = np.array([180, 255, 255], dtype=np.uint8)
+# Anillo donde se busca el puntero (% del radio).
+RING_INNER = 0.35
+RING_OUTER = 0.49
+
+# Apertura del fan angular en grados (cuanto del anillo cubre cada fan).
+FAN_WIDTH_DEG = 30.0
+
+# Paso angular de busqueda (resolucion).
+STEP_DEG = 2.0
 
 
-def _ring_mask(shape: tuple[int, int]) -> np.ndarray:
-    """Máscara booleana del anillo entre 20% y 55% del radio del círculo."""
+def _deviation_map(roi_bgr: np.ndarray) -> np.ndarray:
+    """|gray - blur|. Resalta pixeles que rompen la suavidad local."""
+    gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    sigma = max(roi_bgr.shape[0], roi_bgr.shape[1]) / 8.0
+    blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=sigma)
+    return np.abs(gray - blurred)
+
+
+def _ring_indices(shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Devuelve (radius_norm, angle_deg, ring_mask_bool) para cada pixel."""
     h, w = shape
     cx, cy = w / 2.0, h / 2.0
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    radius = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-    inner = min(h, w) * 0.20
-    outer = min(h, w) * 0.55
-    return (radius >= inner) & (radius <= outer)
+    dx = xx - cx
+    dy = yy - cy
+    r = np.sqrt(dx * dx + dy * dy)
+    r_max = min(h, w) / 2.0
+    r_norm = r / r_max
+    # arctan2 devuelve [-pi, pi]; convertimos a [0, 360) horario, 0=derecha.
+    ang = (np.degrees(np.arctan2(dy, dx)) + 360.0) % 360.0
+    ring = (r_norm >= RING_INNER) & (r_norm <= RING_OUTER)
+    return r_norm, ang, ring
 
 
-def _direction_from_red_needle(roi_bgr: np.ndarray) -> tuple[Optional[float], float]:
-    h, w = roi_bgr.shape[:2]
-    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, RED_LO_1, RED_HI_1) | cv2.inRange(hsv, RED_LO_2, RED_HI_2)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+def _fan_sweep(deviation: np.ndarray, ang: np.ndarray, ring: np.ndarray) -> tuple[Optional[float], float]:
+    """Para cada angulo theta (en pasos de STEP_DEG), suma la deviation
+    dentro del fan centrado en theta. Devuelve (theta_max, score)."""
+    half = FAN_WIDTH_DEG / 2.0
+    best_deg: Optional[float] = None
+    best_sum = -1.0
+    second_best_sum = 0.0  # para calcular relacion peak/2nd-peak (confianza)
 
-    ring = _ring_mask((h, w))
-    candidates = mask.astype(bool) & ring
-    pts = np.argwhere(candidates)
-    if len(pts) < 6:
-        return None, 0.0
-    cx, cy = w / 2.0, h / 2.0
-    my = float(pts[:, 0].mean()) - cy
-    mx = float(pts[:, 1].mean()) - cx
-    deg = float(np.degrees(np.arctan2(my, mx))) % 360.0
-    conf = float(min(1.0, len(pts) / 80.0))
-    return deg, conf
+    for theta in np.arange(0.0, 360.0, STEP_DEG):
+        # Distancia angular minima (toma en cuenta wrap-around 360->0).
+        diff = np.abs(ang - theta)
+        diff = np.minimum(diff, 360.0 - diff)
+        fan = ring & (diff <= half)
+        if not fan.any():
+            continue
+        s = float(deviation[fan].sum())
+        if s > best_sum:
+            second_best_sum = best_sum if best_sum > 0 else 0.0
+            best_sum = s
+            best_deg = float(theta)
+        elif s > second_best_sum:
+            second_best_sum = s
 
-
-def _direction_from_deviation(roi_bgr: np.ndarray) -> tuple[Optional[float], float]:
-    h, w = roi_bgr.shape[:2]
-    if h < 10 or w < 10:
-        return None, 0.0
-    gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=h / 6.0)
-    deviation = np.abs(gray - blurred)
-
-    ring = _ring_mask((h, w)).astype(np.float32)
-    weights = deviation * ring
-    total = float(weights.sum())
-    if total < 1.0:
+    if best_deg is None or best_sum <= 0:
         return None, 0.0
 
-    cx, cy = w / 2.0, h / 2.0
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    mx = float((xx * weights).sum() / total)
-    my = float((yy * weights).sum() / total)
-    deg = float(np.degrees(np.arctan2(my - cy, mx - cx))) % 360.0
-    conf = float(min(1.0, total / (ring.sum() * 30.0)))
-    return deg, conf
-
-
-def _read_magnitude(roi_bgr: np.ndarray) -> tuple[Optional[int], float]:
-    """OCR sobre el cuadrado central del círculo (donde vive el número)."""
-    h, w = roi_bgr.shape[:2]
-    side = int(min(h, w) * 0.6)
-    cx, cy = w // 2, h // 2
-    x0 = max(0, cx - side // 2)
-    y0 = max(0, cy - side // 2)
-    center = roi_bgr[y0 : y0 + side, x0 : x0 + side]
-    return read_digits(
-        center, upscale=4.0, min_value=0, max_value=99, color="green", debug_tag="wind"
-    )
+    # Confianza: cuanto se destaca el peak vs el segundo (proxy de
+    # concentracion del puntero). Si hay un puntero claro, el peak es
+    # mucho mas alto que el resto -> ratio cerca de 1. Si es ruido,
+    # ratio cerca de 0.
+    if second_best_sum <= 0:
+        conf = 1.0
+    else:
+        conf = float(np.clip(1.0 - second_best_sum / best_sum, 0.0, 1.0))
+    return best_deg, conf
 
 
 def detect(roi_bgr: np.ndarray) -> WindReading:
-    direction, dir_conf = _direction_from_red_needle(roi_bgr)
-    if direction is None or dir_conf < 0.15:
-        direction, dir_conf = _direction_from_deviation(roi_bgr)
+    """Devuelve solo la direccion del puntero. El value lo pone `wind_number.detect()`."""
+    if roi_bgr is None or roi_bgr.size == 0 or min(roi_bgr.shape[:2]) < 20:
+        return WindReading()
 
-    magnitude, mag_conf = _read_magnitude(roi_bgr)
-    return WindReading(
-        value=magnitude,
-        direction_deg=direction,
-        confidence=float(np.mean([dir_conf, mag_conf])),
-    )
+    deviation = _deviation_map(roi_bgr)
+    _, ang, ring = _ring_indices(roi_bgr.shape[:2])
+    direction, conf = _fan_sweep(deviation, ang, ring)
+    return WindReading(value=None, direction_deg=direction, confidence=conf)

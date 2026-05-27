@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 /// Encuentra la raíz del proyecto (donde vive `vision/` y `.venv/`).
 /// Tauri dev arranca con cwd en `src-tauri/`, así que subimos un nivel.
 /// Buscamos hasta 3 niveles arriba por si el cwd cambia.
-fn project_root() -> std::path::PathBuf {
+pub fn project_root() -> std::path::PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let mut p = cwd.as_path();
     for _ in 0..3 {
