@@ -33,25 +33,15 @@ src-tauri/target/
 tauri-dev.log
 tauri-dev.log.err
 *.log.err
+
+# --- Dataset de entrenamiento ---
+# Las imagenes SI se versionan: son el corazon del proyecto (sin ellas el
+# modelo no es reproducible ni se puede re-entrenar/mejorar). Son numeros de
+# un HUD de juego, nada sensible, y pesan poco (<1 MB el dataset, ~18 MB con
+# las samples full). Solo excluimos outputs temporales de debug.
 assets/samples/_debug/
-
-# --- Capturas privadas del usuario ---
-# Las screenshots con info del juego no se publican.
-# Pero el hud_reference.png anotado en assets/docs/ SÍ se commitea.
-assets/samples/*.png
-assets/samples/Screenshot*
-!assets/samples/*.png
-# Permitir el ground truth + roi config:
-!assets/samples/.gitkeep
-!assets/samples/ground_truth.json
-!assets/samples/example.roi.json
-
-# Dataset de entrenamiento de la CNN (privado, capturas del juego del usuario).
-# Las imagenes crudas/etiquetadas se quedan en local; se versionan los
-# scripts, el modelo .onnx y los labels JSON (anotaciones, son metadata chica).
-assets/dataset/raw/
-assets/dataset/labeled/
 assets/dataset/_debug_seg/
+assets/dataset/_debug/
 
 # --- IDE ---
 .vscode/*
