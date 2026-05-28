@@ -1,0 +1,13 @@
+# Dependencias SOLO para entrenar la CNN de digitos (Sprint C.3).
+# No se necesitan en runtime (el detector usa onnxruntime, que esta en
+# requirements.txt). Instalar aparte, con la rueda CUDA acorde a tu GPU.
+#
+# Para RTX 50xx (Blackwell, sm_120) usar CUDA 12.8:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r vision/requirements-training.txt
+#
+# (torch/torchvision NO se listan aca a proposito: la rueda correcta depende
+#  de la GPU/CUDA y debe instalarse con el --index-url adecuado.)
+
+onnx>=1.17
+onnxscript>=0.7

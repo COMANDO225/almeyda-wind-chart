@@ -56,6 +56,10 @@ pub fn run() {
         )
         .manage(Mutex::new(AppState::default()))
         .setup(|app| {
+            // Excluir los markers de las capturas de pantalla: siguen visibles
+            // para el usuario pero NO aparecen en los PNGs que toma xcap.
+            exclude_markers_from_capture(app.handle());
+
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = state::restore_from_store(&handle).await {
@@ -79,4 +83,39 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Marca las ventanas marker con `WDA_EXCLUDEFROMCAPTURE`: siguen visibles en
+/// pantalla pero el compositor DWM las excluye de toda captura (xcap usa
+/// BitBlt, que respeta esta affinity). Asi las muestras del dataset y los
+/// frames del loop OCR salen limpios, sin el borde celeste del marker.
+#[cfg(windows)]
+fn exclude_markers_from_capture<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+    };
+    for label in ["marker_wind", "marker_angle"] {
+        let Some(win) = app.get_webview_window(label) else {
+            log::warn!("exclude_from_capture: ventana '{label}' no encontrada");
+            continue;
+        };
+        match win.hwnd() {
+            Ok(hwnd) => {
+                let ok = unsafe {
+                    SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE)
+                };
+                if ok == 0 {
+                    log::warn!("SetWindowDisplayAffinity fallo en '{label}' (este PC podria no soportarlo)");
+                } else {
+                    log::info!("'{label}' excluido de capturas (WDA_EXCLUDEFROMCAPTURE)");
+                }
+            }
+            Err(e) => log::warn!("no se pudo obtener HWND de '{label}': {e}"),
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn exclude_markers_from_capture<R: tauri::Runtime>(_app: &tauri::AppHandle<R>) {
+    // WDA_EXCLUDEFROMCAPTURE es especifico de Windows. En otros SO no aplica.
 }

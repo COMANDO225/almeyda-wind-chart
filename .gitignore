@@ -11,6 +11,8 @@ venv/
 vision/models/*.onnx
 vision/models/*.pt
 vision/models/*.pth
+# Excepcion: nuestro modelo custom entrenado SI se versiona (612 KB, artefacto del proyecto).
+!vision/models/digit_classifier.onnx
 
 # --- Node / Svelte / Vite ---
 node_modules/
@@ -45,10 +47,11 @@ assets/samples/Screenshot*
 !assets/samples/example.roi.json
 
 # Dataset de entrenamiento de la CNN (privado, capturas del juego del usuario).
-# Las muestras crudas y etiquetadas se quedan en local; solo se versionan los
-# scripts y el modelo entrenado .onnx (cuando exista).
+# Las imagenes crudas/etiquetadas se quedan en local; se versionan los
+# scripts, el modelo .onnx y los labels JSON (anotaciones, son metadata chica).
 assets/dataset/raw/
 assets/dataset/labeled/
+assets/dataset/_debug_seg/
 
 # --- IDE ---
 .vscode/*

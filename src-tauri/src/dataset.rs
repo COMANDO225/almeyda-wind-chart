@@ -18,40 +18,11 @@ use image::imageops::FilterType;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::capture::{capture_region_png, CaptureShape};
 use crate::sidecar::project_root;
 use crate::state::{AppState, Rect};
-
-/// Tiempo que esperamos despues de `hide()` para que el compositor del SO
-/// repinte la zona que ocupaba la ventana del marker. 80ms = ~5 frames a
-/// 60Hz, suficiente en la mayoria de hardware moderno.
-const HIDE_REPAINT_MS: u64 = 80;
-
-/// Oculta brevemente la ventana del marker, captura, y la vuelve a mostrar.
-/// Asi el PNG resultante contiene SOLO el juego de fondo, sin el border ni
-/// los corners del marker.
-fn capture_under_marker<R: Runtime>(
-    app: &AppHandle<R>,
-    window_label: &str,
-    rect: Rect,
-    shape: CaptureShape,
-) -> Result<Vec<u8>> {
-    let window = app
-        .get_webview_window(window_label)
-        .with_context(|| format!("ventana '{window_label}' no encontrada"))?;
-    window.hide().context("hide marker")?;
-    thread::sleep(Duration::from_millis(HIDE_REPAINT_MS));
-    let result = capture_region_png(rect, shape);
-    // Restaurar visibilidad incluso si el capture fallo.
-    if let Err(e) = window.show() {
-        log::warn!("show marker fallo: {e}");
-    }
-    result
-}
 
 /// Aplica un upscale (NxN) a un PNG ya codificado. Util para "zoom in" del
 /// sample antes de guardarlo: el numero del juego es relativamente chiquito
@@ -156,10 +127,12 @@ pub fn capture_wind_sample<R: Runtime>(app: &AppHandle<R>) -> Result<Option<Path
         return Ok(None);
     };
     let center = center_80_pct(abs);
-    let png = capture_under_marker(app, "marker_wind", center, CaptureShape::Rect)?;
+    // El marker esta excluido de captura (WDA_EXCLUDEFROMCAPTURE), asi que la
+    // captura sale limpia sin necesidad de ocultar la ventana.
+    let png = capture_region_png(center, CaptureShape::Rect)?;
     let zoomed = zoom_png(&png, 2)?;
     let path = save_sample("wind_number", &zoomed)?;
-    log::info!("F1 sample wind_number (hide+center80+zoom2x): {}", path.display());
+    log::info!("F1 sample wind_number (center80+zoom2x): {}", path.display());
     Ok(Some(path))
 }
 
@@ -177,8 +150,8 @@ pub fn capture_angle_sample<R: Runtime>(app: &AppHandle<R>) -> Result<Option<Pat
     // Outset 2px a cada lado para abarcar TODAS las letras del angulo
     // aunque el usuario haya dejado el rect un poco corto.
     let expanded = outset_rect(abs, 2);
-    let png = capture_under_marker(app, "marker_angle", expanded, CaptureShape::Rect)?;
+    let png = capture_region_png(expanded, CaptureShape::Rect)?;
     let path = save_sample("angle", &png)?;
-    log::info!("F2 sample angle (hide+outset2): {}", path.display());
+    log::info!("F2 sample angle (outset2): {}", path.display());
     Ok(Some(path))
 }
