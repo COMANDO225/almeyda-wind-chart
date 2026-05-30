@@ -13,6 +13,18 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebView2/Chromium estrangula el repintado y los timers de las ventanas
+    // SIN foco. Como el foco esta en el juego, el panel se actualizaba con
+    // retardo (se "despertaba" al hacer click). Estos flags desactivan ese
+    // throttling para que el panel repinte en tiempo real siempre.
+    #[cfg(windows)]
+    std::env::set_var(
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+        "--disable-background-timer-throttling \
+         --disable-renderer-backgrounding \
+         --disable-backgrounding-occluded-windows",
+    );
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -101,9 +113,7 @@ fn exclude_markers_from_capture<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         };
         match win.hwnd() {
             Ok(hwnd) => {
-                let ok = unsafe {
-                    SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE)
-                };
+                let ok = unsafe { SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE) };
                 if ok == 0 {
                     log::warn!("SetWindowDisplayAffinity fallo en '{label}' (este PC podria no soportarlo)");
                 } else {

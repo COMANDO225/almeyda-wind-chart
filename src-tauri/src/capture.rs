@@ -1,33 +1,126 @@
-//! Captura de una región rectangular de pantalla a PNG bytes.
+//! Captura de una region rectangular de pantalla a PNG bytes.
 //!
-//! Usa la crate `xcap` que en Windows envuelve Windows.Graphics.Capture y en
-//! otros SOs cae a APIs nativas. Es muy rápida (~5–15 ms por captura típica) y
-//! no abre ventanas extra.
+//! En Windows captura SOLO la region pedida con un BitBlt directo de GDI
+//! (~sub-ms), en vez de capturar el monitor entero y recortar (lo que costaba
+//! ~15-40 ms por frame). El BitBlt del DC de pantalla respeta
+//! `WDA_EXCLUDEFROMCAPTURE`, asi que los markers excluidos siguen sin aparecer.
+//! Fuera de Windows cae a `xcap` (captura el monitor y recorta).
 
 use anyhow::{Context, Result};
 use image::{ImageEncoder, Rgba, RgbaImage};
 
 use crate::state::Rect;
 
-/// Modo de captura: rectángulo entero o con máscara circular.
+/// Modo de captura: rectangulo entero o con mascara circular.
 #[derive(Debug, Clone, Copy)]
 pub enum CaptureShape {
     Rect,
-    /// Máscara circular inscrita en el rect cuadrado: píxeles fuera del
-    /// círculo se pintan de negro. Usado para el medidor de viento, donde
-    /// la zona fuera del círculo no aporta info y solo confunde al detector.
+    /// Mascara circular inscrita en el rect cuadrado: pixeles fuera del
+    /// circulo se pintan de negro. Usado para el medidor de viento, donde la
+    /// zona fuera del circulo no aporta info y solo confunde al detector.
     Circle,
 }
 
 pub fn capture_region_png(rect: Rect, shape: CaptureShape) -> Result<Vec<u8>> {
+    let mut cropped = capture_region(rect)?;
+    if matches!(shape, CaptureShape::Circle) {
+        apply_circle_mask(&mut cropped);
+    }
+    let (w, h) = (cropped.width(), cropped.height());
+    let mut buf = Vec::with_capacity((w * h * 4) as usize);
+    image::codecs::png::PngEncoder::new(&mut buf)
+        .write_image(cropped.as_raw(), w, h, image::ExtendedColorType::Rgba8)
+        .context("PNG encode")?;
+    Ok(buf)
+}
+
+/// Captura SOLO la region (coords absolutas en pixels fisicos) con un BitBlt
+/// directo de GDI. Mucho mas barato que capturar el monitor entero.
+#[cfg(windows)]
+fn capture_region(rect: Rect) -> Result<RgbaImage> {
+    use std::ffi::c_void;
+    use windows_sys::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, SRCCOPY,
+    };
+
+    let w = rect.w.max(1);
+    let h = rect.h.max(1);
+    let (wi, hi) = (w as i32, h as i32);
+
+    // SAFETY: secuencia estandar de captura GDI. Todos los recursos creados
+    // (DC de memoria + bitmap) se liberan antes de salir, incluso en error.
+    unsafe {
+        let screen_dc = GetDC(std::ptr::null_mut());
+        if screen_dc.is_null() {
+            anyhow::bail!("GetDC(NULL) fallo");
+        }
+        let mem_dc = CreateCompatibleDC(screen_dc);
+        let bitmap = CreateCompatibleBitmap(screen_dc, wi, hi);
+        if mem_dc.is_null() || bitmap.is_null() {
+            if !bitmap.is_null() {
+                DeleteObject(bitmap);
+            }
+            if !mem_dc.is_null() {
+                DeleteDC(mem_dc);
+            }
+            ReleaseDC(std::ptr::null_mut(), screen_dc);
+            anyhow::bail!("CreateCompatibleDC/Bitmap fallo");
+        }
+
+        let old = SelectObject(mem_dc, bitmap);
+        let blt_ok = BitBlt(mem_dc, 0, 0, wi, hi, screen_dc, rect.x, rect.y, SRCCOPY);
+        SelectObject(mem_dc, old); // deseleccionar el bitmap ANTES de GetDIBits
+
+        let mut bmi: BITMAPINFO = std::mem::zeroed();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = wi;
+        bmi.bmiHeader.biHeight = -hi; // negativo = top-down (fila 0 = arriba)
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = 0; // BI_RGB (sin compresion)
+
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let lines = GetDIBits(
+            mem_dc,
+            bitmap,
+            0,
+            h,
+            buf.as_mut_ptr() as *mut c_void,
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+
+        DeleteObject(bitmap);
+        DeleteDC(mem_dc);
+        ReleaseDC(std::ptr::null_mut(), screen_dc);
+
+        if blt_ok == 0 {
+            anyhow::bail!("BitBlt fallo");
+        }
+        if lines == 0 {
+            anyhow::bail!("GetDIBits no devolvio scanlines");
+        }
+
+        // Un DIB de 32bpp viene en orden BGRA y GDI deja el 4to byte en 0;
+        // lo pasamos a RGBA opaco para `image`/PNG.
+        for px in buf.chunks_exact_mut(4) {
+            px.swap(0, 2);
+            px[3] = 255;
+        }
+        RgbaImage::from_raw(w, h, buf).context("RgbaImage::from_raw")
+    }
+}
+
+/// Fallback no-Windows: captura el monitor con xcap y recorta la region.
+#[cfg(not(windows))]
+fn capture_region(rect: Rect) -> Result<RgbaImage> {
     let monitors = xcap::Monitor::all().context("xcap::Monitor::all")?;
     let monitor = monitors
         .iter()
         .find(|m| {
-            let mx = m.x();
-            let my = m.y();
-            let mw = m.width() as i32;
-            let mh = m.height() as i32;
+            let (mx, my) = (m.x(), m.y());
+            let (mw, mh) = (m.width() as i32, m.height() as i32);
             rect.x >= mx
                 && rect.y >= my
                 && rect.x + rect.w as i32 <= mx + mw
@@ -35,38 +128,20 @@ pub fn capture_region_png(rect: Rect, shape: CaptureShape) -> Result<Vec<u8>> {
         })
         .cloned()
         .or_else(|| monitors.first().cloned())
-        .context("ningún monitor encontrado")?;
-
+        .context("ningun monitor encontrado")?;
     let full = monitor.capture_image().context("monitor.capture_image")?;
-    let mx = monitor.x();
-    let my = monitor.y();
-    let rel_x = (rect.x - mx).max(0) as u32;
-    let rel_y = (rect.y - my).max(0) as u32;
+    let rel_x = (rect.x - monitor.x()).max(0) as u32;
+    let rel_y = (rect.y - monitor.y()).max(0) as u32;
     let w = rect.w.min(full.width().saturating_sub(rel_x));
     let h = rect.h.min(full.height().saturating_sub(rel_y));
-
-    let mut cropped = image::imageops::crop_imm(&full, rel_x, rel_y, w, h).to_image();
-    if matches!(shape, CaptureShape::Circle) {
-        apply_circle_mask(&mut cropped);
-    }
-
-    let mut buf = Vec::with_capacity((w * h * 4) as usize);
-    image::codecs::png::PngEncoder::new(&mut buf)
-        .write_image(
-            cropped.as_raw(),
-            cropped.width(),
-            cropped.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .context("PNG encode")?;
-    Ok(buf)
+    Ok(image::imageops::crop_imm(&full, rel_x, rel_y, w, h).to_image())
 }
 
-/// Pinta de negro los píxeles fuera del círculo inscrito.
+/// Pinta de negro los pixeles fuera del circulo inscrito.
 ///
-/// El círculo está centrado en el rect y su radio es min(w, h) / 2. Esto
-/// elimina el ruido de la zona vacía cuando el marker es circular (radar
-/// del viento) — el OCR / detector de puntero solo ve el contenido relevante.
+/// El circulo esta centrado en el rect y su radio es min(w, h) / 2. Esto
+/// elimina el ruido de la zona vacia cuando el marker es circular (radar del
+/// viento) — el OCR / detector de puntero solo ve el contenido relevante.
 fn apply_circle_mask(img: &mut RgbaImage) {
     let w = img.width() as f32;
     let h = img.height() as f32;

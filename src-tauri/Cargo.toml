@@ -24,8 +24,7 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 base64 = "0.22"
 
-# Captura de pantalla por región (cross-platform).
-xcap = "0.0.14"
+# Imagen: encode PNG del recorte + buffer RGBA (ambos SO).
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Timestamps para nombrar samples del dataset.
@@ -37,7 +36,13 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Win32 API para SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE): hace que
 # los markers sean visibles en pantalla pero invisibles a las capturas.
 [target.'cfg(windows)'.dependencies]
+# BitBlt directo de la region (Gdi) + WDA_EXCLUDEFROMCAPTURE (WindowsAndMessaging).
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
 ] }
+
+# Fuera de Windows no hay BitBlt: xcap captura el monitor y recortamos.
+[target.'cfg(not(windows))'.dependencies]
+xcap = "0.0.14"

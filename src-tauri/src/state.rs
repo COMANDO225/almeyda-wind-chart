@@ -22,6 +22,10 @@ pub struct AppState {
     pub angle_rect: Option<Rect>,
     pub last_wind: Option<WindReading>,
     pub last_angle: Option<AngleReading>,
+    /// Anti-rebote del angulo: valor candidato a confirmar y cuantos frames
+    /// consecutivos lleva leido. NO se serializa ni persiste.
+    pub angle_pending: Option<i32>,
+    pub angle_pending_count: u8,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
@@ -38,10 +42,7 @@ pub struct AngleReading {
 }
 
 #[tauri::command]
-pub fn get_marker_rect(
-    name: &str,
-    state: tauri::State<'_, Mutex<AppState>>,
-) -> Option<Rect> {
+pub fn get_marker_rect(name: &str, state: tauri::State<'_, Mutex<AppState>>) -> Option<Rect> {
     let s = state.lock().unwrap();
     match name {
         "wind" => s.wind_rect,

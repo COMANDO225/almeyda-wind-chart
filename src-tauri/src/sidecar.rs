@@ -1,4 +1,4 @@
-﻿//! IPC con el sidecar Python (`vision/main.py serve`).
+//! IPC con el sidecar Python (`vision/main.py serve`).
 //!
 //! Mantiene un proceso Python vivo y le manda frames por stdin. Lee respuestas
 //! JSON por stdout. Si el proceso muere, se reintenta arrancarlo.
@@ -89,7 +89,10 @@ impl Sidecar {
         }
         let root = project_root();
         let py = python_path(&root);
-        log::info!("arrancando sidecar Python (vision/main.py serve) en {}", root.display());
+        log::info!(
+            "arrancando sidecar Python (vision/main.py serve) en {}",
+            root.display()
+        );
         let mut cmd = Command::new(&py);
         cmd.args(["-u", "-m", "vision.main", "serve"])
             .current_dir(&root)
@@ -139,4 +142,3 @@ impl Sidecar {
         Ok(serde_json::from_str(buf.trim())?)
     }
 }
-

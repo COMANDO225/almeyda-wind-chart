@@ -132,7 +132,10 @@ pub fn capture_wind_sample<R: Runtime>(app: &AppHandle<R>) -> Result<Option<Path
     let png = capture_region_png(center, CaptureShape::Rect)?;
     let zoomed = zoom_png(&png, 2)?;
     let path = save_sample("wind_number", &zoomed)?;
-    log::info!("F1 sample wind_number (center80+zoom2x): {}", path.display());
+    log::info!(
+        "F1 sample wind_number (center80+zoom2x): {}",
+        path.display()
+    );
     Ok(Some(path))
 }
 
