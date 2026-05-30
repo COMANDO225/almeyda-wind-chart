@@ -11,8 +11,9 @@ venv/
 vision/models/*.onnx
 vision/models/*.pt
 vision/models/*.pth
-# Excepcion: nuestro modelo custom entrenado SI se versiona (612 KB, artefacto del proyecto).
+# Excepcion: nuestros modelos custom entrenados SI se versionan (artefactos del proyecto).
 !vision/models/digit_classifier.onnx
+!vision/models/angle_number.onnx
 
 # --- Node / Svelte / Vite ---
 node_modules/
