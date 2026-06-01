@@ -19,7 +19,9 @@ repos:
         exclude: tsconfig\.json$  # permite comentarios estilo JSONC
       - id: check-merge-conflict
       - id: check-added-large-files
-        args: ["--maxkb=2048"]
+        # 4 MB: cubre los modelos .onnx custom (wind_pointer ~2.5 MB), que son
+        # artefactos del proyecto que SI versionamos. Sigue frenando PNGs/datos.
+        args: ["--maxkb=4096"]
 
   # Rust: formatter + linter (estricto).
   - repo: local

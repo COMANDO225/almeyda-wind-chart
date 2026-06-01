@@ -12,8 +12,10 @@ vision/models/*.onnx
 vision/models/*.pt
 vision/models/*.pth
 # Excepcion: nuestros modelos custom entrenados SI se versionan (artefactos del proyecto).
-!vision/models/digit_classifier.onnx
 !vision/models/angle_number.onnx
+!vision/models/wind_pointer.onnx
+!vision/models/wind_number.onnx
+!vision/models/wind_number.onnx
 
 # --- Node / Svelte / Vite ---
 node_modules/
@@ -36,11 +38,17 @@ tauri-dev.log.err
 *.log.err
 
 # --- Dataset de entrenamiento ---
-# Las imagenes SI se versionan: son el corazon del proyecto (sin ellas el
-# modelo no es reproducible ni se puede re-entrenar/mejorar). Son numeros de
-# un HUD de juego, nada sensible, y pesan poco (<1 MB el dataset, ~18 MB con
-# las samples full). Solo excluimos outputs temporales de debug.
-assets/samples/_debug/
+# Capturas REALES del juego (raw/angle): SI se versionan — no son
+# reproducibles (hay que capturarlas a mano del HUD). Pesan poco (~4.5 MB).
+# Los labels JSON tambien se versionan (documentan el dataset, livianos).
+#
+# Datasets SINTETICOS del viento (raw/wind_number, raw/wind_pointer): NO se
+# versionan — pesan 2.7 GB y son REGENERABLES con el visor `almeyda-wind-visor`
+# (mismo proceso, los labels JSON quedan versionados como referencia). Meterlos
+# en git inflaria el repo sin sentido (PNG no se diffean, se regeneran).
+assets/dataset/raw/wind_number/
+assets/dataset/raw/wind_pointer/
+# Outputs temporales de debug.
 assets/dataset/_debug_seg/
 assets/dataset/_debug/
 
