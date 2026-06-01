@@ -1,8 +1,8 @@
-"""Lector ONNX del NUMERO del viento (Camino 2 para wind_number).
+"""Lector ONNX del NUMERO del viento.
 
-Reemplaza el `read_digits` con RapidOCR por el modelo CNN multi-cabeza
-entrenado: `wind_number.onnx` (2 salidas: tens, ones). Una sola pasada del
-recorte central del radar da (tens, ones) y se reconstruye el numero.
+Modelo CNN multi-cabeza propio `wind_number.onnx` (2 salidas: tens, ones). Una
+sola pasada del recorte central del radar da (tens, ones) y se reconstruye el
+numero. ~1 ms en CPU, sin OCR pesado ni descargas en runtime.
 
 Sesion ONNX singleton (carga unica, ~1 ms por inferencia despues). Lee las
 salidas por NOMBRE (no por indice) por si el exportador las reordena. Sin

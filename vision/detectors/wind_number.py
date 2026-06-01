@@ -1,9 +1,8 @@
-"""Detector del NUMERO del viento — CNN custom (Camino 2 para wind_number).
+"""Detector del NUMERO del viento — CNN propia.
 
-Reemplaza el RapidOCR (~300 MB, ~50-200 ms por inferencia) por la CNN
-multi-cabeza entrenada con el dataset sintetico del Almeyda Wind Visor
-(~22k muestras, distribucion balanceada de los 51 valores 0-50, 6 etapas
-de opacidad). ~1 MB de modelo, ~1 ms de inferencia.
+CNN multi-cabeza entrenada con el dataset sintetico del Almeyda Wind Visor
+(~22k muestras, distribucion balanceada de los 51 valores 0-50, 6 etapas de
+opacidad). ~1 MB de modelo, ~1 ms de inferencia en CPU.
 
 El recorte que recibe el detector es el FRAME CIRCULAR ENTERO del
 marker_wind (con la mascara aplicada por `CaptureShape::Circle` en Rust).
