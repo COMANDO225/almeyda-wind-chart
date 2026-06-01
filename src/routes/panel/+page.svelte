@@ -6,10 +6,22 @@
   import {
     onWind,
     onAngle,
+    onForce,
+    onPoints,
+    getPoints,
+    clearPoints,
+    getLock,
+    setLock,
+    getCalibration,
+    addCalibrationSample,
+    fitCalibration,
     getExcludeFromCapture,
     setExcludeFromCapture,
     type WindReading,
     type AngleReading,
+    type ForceReading,
+    type Points,
+    type CalibInfo,
   } from "$lib/ipc";
 
   // marker_wind emite un WindReading con AMBOS campos (value + direction_deg)
@@ -18,9 +30,71 @@
   let windDirection = $state<number | null>(null);
   let angle = $state<AngleReading | null>(null);
   let mobile = $state("armor");
+  // Fuerza recomendada (0.0–4.0) que computa el backend. null = sin dato aun.
+  let force = $state<ForceReading | null>(null);
+  // Bloqueo del overlay de la barra de fuerza: true = click-through (jugable
+  // debajo), false = se puede mover/redimensionar.
+  let powerBarLocked = $state(false);
+  // Puntos YO/EL marcados con Q/E.
+  let points = $state<Points>({ yo: null, el: null });
+  // Estado de calibración del Armor.
+  let calib = $state<CalibInfo>({ samples: 0, k: 0, wind_factor: 1 });
+  let calibForce = $state(2.0);
+  let calibHit = $state(true);
+  let calibMsg = $state("");
   // Si los markers se ocultan de capturas externas (default true).
   // Lo lee del backend en onMount; el usuario puede toggle desde el switch.
   let excludeFromCapture = $state(true);
+
+  const forceText = $derived.by(() => {
+    const v = force?.value;
+    if (v === null || v === undefined) return "--";
+    if (force && !force.reachable) return "∞";
+    return v.toFixed(2);
+  });
+
+  async function togglePowerBarLock() {
+    const next = !powerBarLocked;
+    powerBarLocked = next; // UI optimista
+    try {
+      await setLock("power_bar", next);
+    } catch (e) {
+      powerBarLocked = !next;
+      console.error("set_lock(power_bar) fallo:", e);
+    }
+  }
+
+  const pointsText = $derived(
+    `${points.yo ? "YO✓" : "YO·"}  ${points.el ? "EL✓" : "EL·"}`,
+  );
+
+  async function onClearPoints() {
+    try {
+      await clearPoints();
+    } catch (e) {
+      console.error("clear_points fallo:", e);
+    }
+  }
+
+  async function onRegisterSample() {
+    calibMsg = "";
+    try {
+      calib = await addCalibrationSample(calibForce, calibHit);
+      calibMsg = `Muestra registrada (${calib.samples}).`;
+    } catch (e) {
+      calibMsg = String(e);
+    }
+  }
+
+  async function onFit() {
+    calibMsg = "";
+    try {
+      calib = await fitCalibration();
+      calibMsg = `Ajustado: k=${calib.k.toFixed(2)}.`;
+    } catch (e) {
+      calibMsg = String(e);
+    }
+  }
 
   // Ángulo a 2 cifras como el viento: magnitud con padStart(2,'0') preservando
   // el signo. 5→"05", 90→"90", -9→"-09", -26→"-26". "--" si no hay lectura.
@@ -46,8 +120,15 @@
   onMount(() => {
     let unWind: (() => void) | undefined;
     let unAngle: (() => void) | undefined;
+    let unForce: (() => void) | undefined;
+    let unPoints: (() => void) | undefined;
     (async () => {
       excludeFromCapture = await getExcludeFromCapture();
+      powerBarLocked = await getLock("power_bar");
+      points = await getPoints();
+      calib = await getCalibration();
+      unForce = await onForce((f) => (force = f));
+      unPoints = await onPoints((p) => (points = p));
       unWind = await onWind((w) => {
         if (w.value !== null && w.value !== undefined) {
           windValue = w.value;
@@ -61,6 +142,8 @@
     return () => {
       unWind?.();
       unAngle?.();
+      unForce?.();
+      unPoints?.();
     };
   });
 
@@ -84,10 +167,48 @@
       <span class="lbl">Ángulo</span>
       <span class="val">{angleText}°</span>
     </div>
+    <div class="row">
+      <span class="lbl">Fuerza</span>
+      <span class="val">{forceText}</span>
+    </div>
   </section>
 
   <section class="controls">
     <MobileSelector bind:value={mobile} />
+    <label class="toggle" title="Bloquea el overlay de la barra de fuerza: activa el click-through para poder arrastrar la barra real del juego debajo. Desbloquéalo para reposicionar el overlay.">
+      <input
+        type="checkbox"
+        checked={powerBarLocked}
+        onchange={togglePowerBarLock}
+      />
+      <span class="toggle-track"><span class="toggle-knob"></span></span>
+      <span class="toggle-label">Barra de fuerza bloqueada (click-through)</span>
+    </label>
+
+    <div class="points">
+      <span class="points-state">{pointsText}</span>
+      <button class="mini" onclick={onClearPoints}>Limpiar YO/EL</button>
+    </div>
+    <p class="hint">Q = punto YO (origen) · E = punto EL (destino)</p>
+
+    <details class="calib">
+      <summary>Calibración Armor · {calib.samples} muestras · k={calib.k.toFixed(1)}</summary>
+      <div class="calib-body">
+        <label class="calib-row">
+          <span>Fuerza usada</span>
+          <input type="number" min="0" max="4" step="0.05" bind:value={calibForce} />
+        </label>
+        <label class="calib-row checkbox">
+          <input type="checkbox" bind:checked={calibHit} />
+          <span>¿Pegó?</span>
+        </label>
+        <div class="calib-actions">
+          <button class="mini" onclick={onRegisterSample}>Registrar muestra</button>
+          <button class="mini" onclick={onFit}>Ajustar k</button>
+        </div>
+        {#if calibMsg}<p class="calib-msg">{calibMsg}</p>{/if}
+      </div>
+    </details>
     <label class="toggle" title="Cuando esta activo, los markers SON visibles en capturas externas (streams, screenshots). Por defecto se ocultan para no contaminar el frame del OCR.">
       <input
         type="checkbox"
@@ -112,6 +233,7 @@
     padding: 14px;
     height: 100vh;
     box-sizing: border-box;
+    overflow-y: auto;
     background: rgba(15, 15, 22, 0.82);
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -154,6 +276,7 @@
   .info {
     display: flex;
     justify-content: center;
+    gap: 8px;
   }
   .row {
     display: flex;
@@ -239,5 +362,81 @@
   }
   .toggle-label {
     flex: 1;
+  }
+
+  .points {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .points-state {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    color: #d8d8e0;
+  }
+  .hint {
+    margin: -4px 0 0;
+    font-size: 10px;
+    color: #888;
+    text-align: center;
+  }
+  .mini {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e8e8ec;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 5px 9px;
+    cursor: pointer;
+  }
+  .mini:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .calib {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: #c8c8d0;
+  }
+  .calib summary {
+    cursor: pointer;
+    user-select: none;
+  }
+  .calib-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .calib-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .calib-row.checkbox {
+    justify-content: flex-start;
+  }
+  .calib-row input[type="number"] {
+    width: 70px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+  .calib-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .calib-msg {
+    margin: 0;
+    font-size: 10px;
+    color: #9fd0a0;
   }
 </style>

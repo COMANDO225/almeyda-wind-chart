@@ -3,6 +3,7 @@
 mod capture;
 mod dataset;
 mod loop_;
+mod physics;
 mod sidecar;
 mod state;
 
@@ -50,8 +51,10 @@ pub fn run() {
                     Shortcut::new(Some(Modifiers::empty()), Code::F1),
                     Shortcut::new(Some(Modifiers::empty()), Code::F2),
                     Shortcut::new(Some(Modifiers::empty()), Code::F3),
+                    Shortcut::new(Some(Modifiers::empty()), Code::KeyQ),
+                    Shortcut::new(Some(Modifiers::empty()), Code::KeyE),
                 ])
-                .expect("Shortcuts F1/F2/F3 invalidos")
+                .expect("Shortcuts invalidos")
                 .with_handler(|app, shortcut, event| {
                     if event.state != ShortcutState::Pressed {
                         return;
@@ -68,6 +71,10 @@ pub fn run() {
                         if let Err(e) = dataset::capture_wind_pointer_sample(app) {
                             log::warn!("F3 captura fallo: {e}");
                         }
+                    } else if shortcut.matches(Modifiers::empty(), Code::KeyQ) {
+                        place_point_at_cursor(app, "yo");
+                    } else if shortcut.matches(Modifiers::empty(), Code::KeyE) {
+                        place_point_at_cursor(app, "el");
                     }
                 })
                 .build(),
@@ -88,6 +95,16 @@ pub fn run() {
                     s.exclude_from_capture
                 };
                 apply_marker_capture_affinity(&handle, enabled);
+                // Aplicar el estado de bloqueo (click-through) persistido a los
+                // overlays interactivos. Bloqueado = el mouse pasa al juego.
+                let (pb_lock, ov_lock) = {
+                    let s = handle.state::<Mutex<AppState>>();
+                    let s = s.lock().unwrap();
+                    (s.power_bar_locked, s.overlay_locked)
+                };
+                set_click_through(&handle, "power_bar", pb_lock);
+                set_click_through(&handle, "overlay_zone", ov_lock);
+                position_overlay_fullscreen(&handle);
                 loop_::start(handle).await;
             });
             Ok(())
@@ -103,11 +120,94 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             state::get_marker_rect,
             state::set_marker_rect,
+            state::get_corner,
+            state::set_corner,
+            state::get_game_zone,
+            state::get_lock,
+            state::set_lock,
+            state::get_points,
+            state::clear_points,
+            state::get_calibration,
+            state::add_calibration_sample,
+            state::fit_calibration,
             state::get_exclude_from_capture,
             state::set_exclude_from_capture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Activa/desactiva el click-through de una ventana overlay. Con `on = true` el
+/// mouse "atraviesa" la ventana y llega al juego de abajo (el overlay solo
+/// muestra). Es la API multiplataforma de Tauri, no necesita Win32.
+pub fn set_click_through<R: tauri::Runtime>(app: &tauri::AppHandle<R>, label: &str, on: bool) {
+    let Some(win) = app.get_webview_window(label) else {
+        log::warn!("set_click_through: ventana '{label}' no encontrada");
+        return;
+    };
+    if let Err(e) = win.set_ignore_cursor_events(on) {
+        log::warn!("set_ignore_cursor_events('{label}', {on}) fallo: {e}");
+    } else {
+        log::info!("'{label}' click-through → {on}");
+    }
+}
+
+/// Posicion del cursor en pixels FISICOS absolutos de pantalla.
+#[cfg(windows)]
+fn cursor_position() -> Option<(i32, i32)> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut pt = POINT { x: 0, y: 0 };
+    let ok = unsafe { GetCursorPos(&mut pt) };
+    if ok == 0 {
+        None
+    } else {
+        Some((pt.x, pt.y))
+    }
+}
+
+#[cfg(not(windows))]
+fn cursor_position() -> Option<(i32, i32)> {
+    None
+}
+
+/// Coloca el punto YO (origen) o EL (destino) en la posicion actual del cursor,
+/// si cae dentro de la zona de juego anclada. Lo disparan las hotkeys Q/E.
+fn place_point_at_cursor<R: tauri::Runtime>(app: &tauri::AppHandle<R>, which: &str) {
+    let Some((x, y)) = cursor_position() else {
+        log::warn!("no se pudo leer la posicion del cursor para '{which}'");
+        return;
+    };
+    let inside = {
+        let s = app.state::<Mutex<AppState>>();
+        let s = s.lock().unwrap();
+        match s.game_zone() {
+            Some(z) => x >= z.x && y >= z.y && x < z.x + z.w as i32 && y < z.y + z.h as i32,
+            None => false,
+        }
+    };
+    if !inside {
+        log::warn!("punto '{which}' fuera de la zona de juego (o sin anclar) — ignorado");
+        return;
+    }
+    state::set_point(app, which, state::Point { x, y });
+    log::info!("punto {} → ({x}, {y})", which.to_uppercase());
+}
+
+/// Estira el overlay de puntos (`overlay_zone`) para cubrir el monitor primario.
+/// Es click-through, asi que cubrir todo no molesta y evita reposicionarlo cada
+/// vez que se mueven los esquineros (los puntos se validan contra la zona).
+fn position_overlay_fullscreen<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(win) = app.get_webview_window("overlay_zone") else {
+        return;
+    };
+    match win.primary_monitor() {
+        Ok(Some(mon)) => {
+            let _ = win.set_position(*mon.position());
+            let _ = win.set_size(*mon.size());
+        }
+        _ => log::warn!("no se pudo obtener el monitor primario para overlay_zone"),
+    }
 }
 
 /// Aplica el modo de captura a las ventanas marker:
@@ -130,7 +230,14 @@ pub fn apply_marker_capture_affinity<R: tauri::Runtime>(app: &tauri::AppHandle<R
     } else {
         WDA_NONE
     };
-    for label in ["marker_wind", "marker_angle"] {
+    for label in [
+        "marker_wind",
+        "marker_angle",
+        "marker_corner_tl",
+        "marker_corner_br",
+        "power_bar",
+        "overlay_zone",
+    ] {
         let Some(win) = app.get_webview_window(label) else {
             log::warn!("apply_capture_affinity: ventana '{label}' no encontrada");
             continue;

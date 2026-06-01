@@ -257,6 +257,7 @@ async fn process_one<R: Runtime>(
                     (sm, prev)
                 };
                 let _ = app.emit("detection:wind", &smoothed);
+                crate::physics::recompute_and_emit(app);
                 if smoothed.value != prev {
                     log::info!(
                         "wind → value {:?} (conf {:.2}), dir {:?}",
@@ -307,6 +308,7 @@ async fn process_one<R: Runtime>(
             };
             if emit {
                 let _ = app.emit("detection:angle", &a);
+                crate::physics::recompute_and_emit(app);
                 log::info!("angle → {} (conf {:.2})", v, a.confidence);
             }
         }
