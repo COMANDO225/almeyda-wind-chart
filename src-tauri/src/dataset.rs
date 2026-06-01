@@ -10,6 +10,11 @@
 //!   en `angle/`). El usuario puede spamear F2 varias veces por turno porque
 //!   el angulo cambia mucho mientras apunta.
 //!
+//! * `F3` → captura del PUNTERO del viento (rect entero del marker_wind con
+//!   mascara circular aplicada — guarda en `wind_pointer/`). Es el MISMO
+//!   preprocesado que el loop runtime, asi train y produccion ven lo mismo.
+//!   El usuario etiqueta despues el angulo del puntero con `label_wind_pointer`.
+//!
 //! Carpeta destino: `<project_root>/assets/dataset/raw/<detector>/{ts}.png`.
 
 use anyhow::{Context, Result};
@@ -136,6 +141,28 @@ pub fn capture_wind_sample<R: Runtime>(app: &AppHandle<R>) -> Result<Option<Path
         "F1 sample wind_number (center80+zoom2x): {}",
         path.display()
     );
+    Ok(Some(path))
+}
+
+/// F3 → captura del PUNTERO del viento (rect entero del marker_wind con
+/// mascara circular, sin zoom — guarda en `wind_pointer/`).
+///
+/// MISMO preprocesado que el loop runtime (`CaptureShape::Circle`) para que
+/// el modelo entrene y produzca sobre imagenes identicas. El angulo del
+/// puntero se etiqueta despues con un tool grafico (`label_wind_pointer`).
+pub fn capture_wind_pointer_sample<R: Runtime>(app: &AppHandle<R>) -> Result<Option<PathBuf>> {
+    let state = app.state::<Mutex<AppState>>();
+    let wind_local = state.lock().unwrap().wind_rect;
+    let Some(local) = wind_local else {
+        log::warn!("F3: marker_wind sin rect — coloca primero el marker");
+        return Ok(None);
+    };
+    let Some(abs) = local_to_absolute(app, "marker_wind", local) else {
+        return Ok(None);
+    };
+    let png = capture_region_png(abs, CaptureShape::Circle)?;
+    let path = save_sample("wind_pointer", &png)?;
+    log::info!("F3 sample wind_pointer (circle full): {}", path.display());
     Ok(Some(path))
 }
 

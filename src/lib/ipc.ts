@@ -40,3 +40,13 @@ export function onWind(handler: (w: WindReading) => void): Promise<UnlistenFn> {
 export function onAngle(handler: (a: AngleReading) => void): Promise<UnlistenFn> {
   return listen<AngleReading>("detection:angle", (e) => handler(e.payload));
 }
+
+/** Marker capture affinity: cuando es true, los markers son INVISIBLES a
+ *  capturas externas (WDA_EXCLUDEFROMCAPTURE). Default true. */
+export async function getExcludeFromCapture(): Promise<boolean> {
+  return invoke<boolean>("get_exclude_from_capture");
+}
+
+export async function setExcludeFromCapture(enabled: boolean): Promise<void> {
+  return invoke<void>("set_exclude_from_capture", { enabled });
+}

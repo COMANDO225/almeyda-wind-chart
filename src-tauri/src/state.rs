@@ -2,6 +2,7 @@
 //! rects de los markers, ademas de persistencia con `tauri-plugin-store`.
 
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_store::StoreExt;
@@ -16,7 +17,7 @@ pub struct Rect {
     pub h: u32,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct AppState {
     pub wind_rect: Option<Rect>,
     pub angle_rect: Option<Rect>,
@@ -26,6 +27,29 @@ pub struct AppState {
     /// consecutivos lleva leido. NO se serializa ni persiste.
     pub angle_pending: Option<i32>,
     pub angle_pending_count: u8,
+    /// Ventana de lecturas recientes del viento para el suavizado temporal
+    /// (promedio circular de dirección + moda del número). NO se serializa.
+    pub wind_history: VecDeque<WindReading>,
+    /// Si los markers se ocultan de capturas externas (WDA_EXCLUDEFROMCAPTURE).
+    /// Default `true`: comportamiento heredado, los markers no aparecen en
+    /// ninguna captura. El usuario lo puede apagar desde el panel cuando
+    /// quiera que SI aparezcan (p.ej. para grabar un tutorial mostrandolos).
+    pub exclude_from_capture: bool,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            wind_rect: None,
+            angle_rect: None,
+            last_wind: None,
+            last_angle: None,
+            angle_pending: None,
+            angle_pending_count: 0,
+            wind_history: VecDeque::new(),
+            exclude_from_capture: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
@@ -79,6 +103,10 @@ pub fn persist<R: Runtime>(app: &AppHandle<R>) -> anyhow::Result<()> {
     if let Some(r) = s.angle_rect {
         store.set("angle_rect", serde_json::to_value(r)?);
     }
+    store.set(
+        "exclude_from_capture",
+        serde_json::Value::Bool(s.exclude_from_capture),
+    );
     store.save()?;
     Ok(())
 }
@@ -93,9 +121,38 @@ pub async fn restore_from_store<R: Runtime>(app: &AppHandle<R>) -> anyhow::Resul
     if let Some(v) = store.get("angle_rect") {
         angle = serde_json::from_value(v.clone()).ok();
     }
+    // Si el flag nunca se guardo, queda en el default (true) del AppState.
+    let exclude = store
+        .get("exclude_from_capture")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let state = app.state::<Mutex<AppState>>();
     let mut s = state.lock().unwrap();
     s.wind_rect = wind;
     s.angle_rect = angle;
+    s.exclude_from_capture = exclude;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_exclude_from_capture(state: tauri::State<'_, Mutex<AppState>>) -> bool {
+    state.lock().unwrap().exclude_from_capture
+}
+
+/// El frontend cambia el toggle del panel → guardamos el flag, persistimos, y
+/// aplicamos a las ventanas vivas (la funcion concreta vive en `lib.rs` porque
+/// usa la Win32 API; aca solo manejamos el estado).
+#[tauri::command]
+pub async fn set_exclude_from_capture<R: Runtime>(
+    enabled: bool,
+    app: AppHandle<R>,
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<(), String> {
+    {
+        let mut s = state.lock().unwrap();
+        s.exclude_from_capture = enabled;
+    }
+    persist(&app).map_err(|e| e.to_string())?;
+    crate::apply_marker_capture_affinity(&app, enabled);
     Ok(())
 }

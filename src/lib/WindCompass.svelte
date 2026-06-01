@@ -2,6 +2,8 @@
   // Compás de viento estilo imagen 7 del usuario: fondo negro mate, 12 marcas
   // radiales naranjas, "Wind" arriba, número grande en rectángulo gris, aguja
   // roja con destello apuntando 0–360° (0 = derecha, 90 = abajo).
+  import { tweened } from "svelte/motion";
+  import { cubicOut } from "svelte/easing";
 
   interface Props {
     value: number | null;
@@ -10,8 +12,27 @@
 
   let { value, directionDeg }: Props = $props();
 
-  // Display: muestra "--" si no hay valor todavía.
-  const display = $derived(value === null ? "--" : String(value));
+  // El viento cambia esporádicamente (de turno a turno), así que un contador
+  // ANIMADO se ve fluido sin atrasar nada (a diferencia del ángulo, que cambia
+  // a 25 FPS y debe ser instantáneo). El tween corre por requestAnimationFrame
+  // en el frontend — no toca el detector ni la GPU, costo despreciable.
+  const tween = tweened(0, { duration: 450, easing: cubicOut });
+  let hasValue = $state(false);
+
+  $effect(() => {
+    if (value === null || value === undefined) {
+      hasValue = false;
+    } else {
+      hasValue = true;
+      tween.set(value);
+    }
+  });
+
+  // Formato 2 dígitos del viento: "00", "01", "15"… (padStart). El rolling
+  // counter pasa por enteros redondeados del valor interpolado.
+  const display = $derived(
+    hasValue ? String(Math.round($tween)).padStart(2, "0") : "--",
+  );
   const angle = $derived(directionDeg ?? 0);
   const ticks = Array.from({ length: 16 }, (_, i) => i * 22.5);
 </script>

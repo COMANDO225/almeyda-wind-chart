@@ -6,6 +6,8 @@
   import {
     onWind,
     onAngle,
+    getExcludeFromCapture,
+    setExcludeFromCapture,
     type WindReading,
     type AngleReading,
   } from "$lib/ipc";
@@ -16,13 +18,36 @@
   let windDirection = $state<number | null>(null);
   let angle = $state<AngleReading | null>(null);
   let mobile = $state("armor");
+  // Si los markers se ocultan de capturas externas (default true).
+  // Lo lee del backend en onMount; el usuario puede toggle desde el switch.
+  let excludeFromCapture = $state(true);
 
-  const angleText = $derived(angle?.value ?? "--");
+  // Ángulo a 2 cifras como el viento: magnitud con padStart(2,'0') preservando
+  // el signo. 5→"05", 90→"90", -9→"-09", -26→"-26". "--" si no hay lectura.
+  const angleText = $derived.by(() => {
+    const v = angle?.value;
+    if (v === null || v === undefined) return "--";
+    const sign = v < 0 ? "-" : "";
+    return sign + String(Math.abs(v)).padStart(2, "0");
+  });
+
+  async function toggleExcludeFromCapture() {
+    const next = !excludeFromCapture;
+    excludeFromCapture = next; // UI optimista
+    try {
+      await setExcludeFromCapture(next);
+    } catch (e) {
+      // si falla, revertimos
+      excludeFromCapture = !next;
+      console.error("set_exclude_from_capture fallo:", e);
+    }
+  }
 
   onMount(() => {
     let unWind: (() => void) | undefined;
     let unAngle: (() => void) | undefined;
     (async () => {
+      excludeFromCapture = await getExcludeFromCapture();
       unWind = await onWind((w) => {
         if (w.value !== null && w.value !== undefined) {
           windValue = w.value;
@@ -63,6 +88,15 @@
 
   <section class="controls">
     <MobileSelector bind:value={mobile} />
+    <label class="toggle" title="Cuando esta activo, los markers SON visibles en capturas externas (streams, screenshots). Por defecto se ocultan para no contaminar el frame del OCR.">
+      <input
+        type="checkbox"
+        checked={!excludeFromCapture}
+        onchange={toggleExcludeFromCapture}
+      />
+      <span class="toggle-track"><span class="toggle-knob"></span></span>
+      <span class="toggle-label">Markers visibles en capturas</span>
+    </label>
   </section>
 
   <footer data-tauri-drag-region>
@@ -141,6 +175,11 @@
     font-size: 22px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+    /* Ancho fijo para que el contenedor no salte entre "5", "-26", "90".
+       Cubre el caso mas ancho ("-26°") + tabular-nums (dígitos isométricos). */
+    display: inline-block;
+    min-width: 3.2em;
+    text-align: right;
   }
   footer {
     margin-top: auto;
@@ -148,5 +187,57 @@
     color: #888;
     text-align: center;
     letter-spacing: 0.05em;
+  }
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: #c8c8d0;
+    cursor: pointer;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    user-select: none;
+  }
+  .toggle input {
+    /* checkbox nativo oculto — usamos el track/knob como UI */
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .toggle-track {
+    position: relative;
+    width: 30px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    transition: background 150ms ease;
+    flex-shrink: 0;
+  }
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    background: #e8e8ec;
+    border-radius: 50%;
+    transition: transform 150ms ease;
+  }
+  .toggle input:checked + .toggle-track {
+    background: rgba(120, 200, 130, 0.65);
+  }
+  .toggle input:checked + .toggle-track .toggle-knob {
+    transform: translateX(14px);
+  }
+  .toggle-label {
+    flex: 1;
   }
 </style>

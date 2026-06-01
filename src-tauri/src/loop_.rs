@@ -11,6 +11,8 @@
 //!   4. Si cambio, la manda al sidecar y emite `detection:wind` / `detection:angle`
 //!      al frontend (el angulo con anti-rebote por confianza).
 
+use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -18,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::capture::{capture_region_png, CaptureShape};
 use crate::sidecar::Sidecar;
-use crate::state::{AppState, Rect};
+use crate::state::{AppState, Rect, WindReading};
 
 /// Confianza minima (producto de las 3 cabezas de la CNN) para aceptar una
 /// lectura de angulo. Los frames dudosos se descartan (no mueven el panel).
@@ -33,9 +35,18 @@ const ANGLE_CONFIRM_FRAMES: u8 = 1;
 /// no cambio) muestrear agresivo es barato: 40ms = 25 FPS. Un cambio se detecta
 /// en <=40ms; los frames quietos cuestan solo capturar + hashear.
 const ANGLE_INTERVAL_MS: u64 = 40;
-/// Cadencia del loop del viento. Corre en su PROPIO sidecar/tarea, asi que su
-/// lentitud (RapidOCR ~2 s) no afecta al angulo. El viento cambia poco.
-const WIND_INTERVAL_MS: u64 = 1000;
+/// Cadencia del loop del viento. Ahora que el numero del viento es CNN (~1 ms,
+/// ya no RapidOCR), y con el frame-skip (no recalcula si el radar no cambio),
+/// muestrear seguido es barato → el cambio de viento se detecta casi al
+/// instante. Corre en su propia tarea/sidecar, sin trabar el angulo.
+const WIND_INTERVAL_MS: u64 = 150;
+/// Ventana de suavizado temporal del viento. El viento es casi ESTÁTICO (solo
+/// cambia entre turnos), asi que podemos promediar fuerte: elimina el temblor
+/// del puntero por animaciones de fondo (remolinos) y descarta lecturas
+/// outlier aisladas (p.ej. una flecha invertida 180° ocasional). ~8 lecturas
+/// a ~7 FPS = ~1.1 s para estabilizar tras cambiar de turno (aceptable: hay
+/// segundos para apuntar). Dirección = promedio CIRCULAR; número = MODA.
+const WIND_HISTORY_CAP: usize = 8;
 
 pub async fn start<R: Runtime>(app: AppHandle<R>) {
     log::info!("loop de deteccion arrancando (angulo 4 FPS, viento aparte)");
@@ -147,6 +158,66 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     h.finish()
 }
 
+/// Consenso temporal de la ventana de lecturas del viento.
+///   * dirección: PROMEDIO CIRCULAR (atan2 de la media de sin/cos). Robusto a
+///     outliers minoritarios — una flecha invertida 180° ocasional no mueve la
+///     resultante si la mayoría apunta bien. Inmune al wrap 0/360.
+///   * número: MODA (valor más frecuente en la ventana), desempate por la mejor
+///     confianza — igual criterio que usábamos para el ángulo.
+///   * confianza: promedio de la ventana.
+fn smooth_wind(history: &VecDeque<WindReading>) -> WindReading {
+    // --- dirección: promedio circular ---
+    let (mut sx, mut sy, mut ndir) = (0.0f64, 0.0f64, 0u32);
+    for r in history {
+        if let Some(d) = r.direction_deg {
+            let rad = d.to_radians();
+            sx += rad.cos();
+            sy += rad.sin();
+            ndir += 1;
+        }
+    }
+    let direction_deg = if ndir > 0 && (sx * sx + sy * sy) > 1e-9 {
+        Some((sy.atan2(sx).to_degrees() + 360.0) % 360.0)
+    } else {
+        None
+    };
+
+    // --- número: moda (con mejor confianza como desempate) ---
+    let mut counts: HashMap<i32, (u32, f64)> = HashMap::new();
+    for r in history {
+        if let Some(v) = r.value {
+            let e = counts.entry(v).or_insert((0, 0.0));
+            e.0 += 1;
+            if r.confidence > e.1 {
+                e.1 = r.confidence;
+            }
+        }
+    }
+    let value = counts
+        .iter()
+        .max_by(|a, b| {
+            a.1 .0.cmp(&b.1 .0).then(
+                a.1 .1
+                    .partial_cmp(&b.1 .1)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+        })
+        .map(|(v, _)| *v);
+
+    // --- confianza: promedio de la ventana ---
+    let confidence = if history.is_empty() {
+        0.0
+    } else {
+        history.iter().map(|r| r.confidence).sum::<f64>() / history.len() as f64
+    };
+
+    WindReading {
+        value,
+        direction_deg,
+        confidence,
+    }
+}
+
 async fn process_one<R: Runtime>(
     app: &AppHandle<R>,
     sidecar: &Sidecar,
@@ -169,9 +240,31 @@ async fn process_one<R: Runtime>(
     match detector {
         "wind" => {
             if let Some(w) = resp.wind {
-                let _ = app.emit("detection:wind", &w);
+                // Suavizado temporal: empuja la lectura cruda a la ventana y
+                // emite el CONSENSO (dirección = promedio circular, número =
+                // moda). Estabiliza el puntero frente a animaciones de fondo y
+                // descarta outliers aislados (flecha invertida ocasional).
                 let state = app.state::<Mutex<AppState>>();
-                state.lock().unwrap().last_wind = Some(w);
+                let (smoothed, prev) = {
+                    let mut s = state.lock().unwrap();
+                    s.wind_history.push_back(w);
+                    while s.wind_history.len() > WIND_HISTORY_CAP {
+                        s.wind_history.pop_front();
+                    }
+                    let sm = smooth_wind(&s.wind_history);
+                    let prev = s.last_wind.and_then(|p| p.value);
+                    s.last_wind = Some(sm);
+                    (sm, prev)
+                };
+                let _ = app.emit("detection:wind", &smoothed);
+                if smoothed.value != prev {
+                    log::info!(
+                        "wind → value {:?} (conf {:.2}), dir {:?}",
+                        smoothed.value,
+                        smoothed.confidence,
+                        smoothed.direction_deg
+                    );
+                }
             }
         }
         "angle" => {

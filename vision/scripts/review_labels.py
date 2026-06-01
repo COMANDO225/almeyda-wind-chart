@@ -183,9 +183,11 @@ def main(argv: list[str] | None = None) -> int:
     total_pages = (len(files) + PER_PAGE - 1) // PER_PAGE
 
     while True:
-        cv2.imshow(win, build_grid(files, labels, raw_dir, state["page"]))
         raw = -1
         while raw == -1 and state["click_cell"] is None:
+            # Refrescar imshow en cada iteracion del wait para que Windows
+            # procese bien los eventos de teclado (gotcha de cv2 en Win).
+            cv2.imshow(win, build_grid(files, labels, raw_dir, state["page"]))
             raw = cv2.waitKey(50)
             try:
                 if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:
