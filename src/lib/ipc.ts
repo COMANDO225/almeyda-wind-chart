@@ -113,6 +113,11 @@ export async function fitCalibration(): Promise<CalibInfo> {
   return invoke<CalibInfo>("fit_calibration");
 }
 
+/** Limpia TODAS las muestras de calibracion y resetea el spec del Armor al base. */
+export async function clearCalibration(): Promise<CalibInfo> {
+  return invoke<CalibInfo>("clear_calibration");
+}
+
 /** marker_wind: el backend corre 2 flujos internos (puntero + numero) y emite
  *  un WindReading con AMBOS campos llenos (value + direction_deg). */
 export function onWind(handler: (w: WindReading) => void): Promise<UnlistenFn> {

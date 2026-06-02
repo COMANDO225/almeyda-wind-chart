@@ -15,6 +15,7 @@
     getCalibration,
     addCalibrationSample,
     fitCalibration,
+    clearCalibration,
     getExcludeFromCapture,
     setExcludeFromCapture,
     type WindReading,
@@ -91,6 +92,19 @@
     try {
       calib = await fitCalibration();
       calibMsg = `Ajustado: k=${calib.k.toFixed(2)}.`;
+    } catch (e) {
+      calibMsg = String(e);
+    }
+  }
+
+  async function onClearCalibration() {
+    if (!confirm("Borrar todas las muestras de calibracion del Armor y resetear k al valor base?")) {
+      return;
+    }
+    calibMsg = "";
+    try {
+      calib = await clearCalibration();
+      calibMsg = "Calibracion limpiada.";
     } catch (e) {
       calibMsg = String(e);
     }
@@ -205,6 +219,7 @@
         <div class="calib-actions">
           <button class="mini" onclick={onRegisterSample}>Registrar muestra</button>
           <button class="mini" onclick={onFit}>Ajustar k</button>
+          <button class="mini danger" onclick={onClearCalibration} title="Borra todas las muestras y vuelve a k base">Limpiar</button>
         </div>
         {#if calibMsg}<p class="calib-msg">{calibMsg}</p>{/if}
       </div>
@@ -231,9 +246,8 @@
     flex-direction: column;
     gap: 14px;
     padding: 14px;
-    height: 100vh;
+    min-height: 100vh;
     box-sizing: border-box;
-    overflow-y: auto;
     background: rgba(15, 15, 22, 0.82);
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -393,6 +407,14 @@
   }
   .mini:hover {
     background: rgba(255, 255, 255, 0.12);
+  }
+  .mini.danger {
+    color: #ffb4a8;
+    border-color: rgba(255, 80, 70, 0.35);
+  }
+  .mini.danger:hover {
+    background: rgba(255, 80, 70, 0.15);
+    border-color: rgba(255, 80, 70, 0.55);
   }
   .calib {
     background: rgba(255, 255, 255, 0.03);

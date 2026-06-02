@@ -310,6 +310,27 @@ pub async fn add_calibration_sample<R: Runtime>(
     Ok(info)
 }
 
+/// Limpia todas las muestras de calibracion y vuelve al spec base del Armor.
+/// Util cuando el usuario registro muestras con valores incorrectos.
+#[tauri::command]
+pub async fn clear_calibration<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<CalibInfo, String> {
+    let info = {
+        let mut s = state.lock().unwrap();
+        s.calib_samples.clear();
+        s.armor_spec = MobileSpec::armor_default();
+        CalibInfo {
+            samples: 0,
+            k: s.armor_spec.k,
+            wind_factor: s.armor_spec.wind_factor,
+        }
+    };
+    persist(&app).map_err(|e| e.to_string())?;
+    Ok(info)
+}
+
 /// Ajusta la `k` del Armor por la mediana de las muestras que pegaron y
 /// recalcula la fuerza con el nuevo spec.
 #[tauri::command]

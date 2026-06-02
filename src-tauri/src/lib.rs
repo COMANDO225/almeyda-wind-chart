@@ -130,6 +130,7 @@ pub fn run() {
             state::get_calibration,
             state::add_calibration_sample,
             state::fit_calibration,
+            state::clear_calibration,
             state::get_exclude_from_capture,
             state::set_exclude_from_capture,
         ])

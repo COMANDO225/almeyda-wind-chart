@@ -98,48 +98,77 @@
     cursor: move;
   }
 
-  /* Cruz centrada — su interseccion es el vertice que ancla la zona. */
+  /* Esquinero estilo "L" (mira de camara): horizontal corto + vertical corto
+     que se encuentran en el VERTICE (centro de la ventana = punto de anclaje).
+     TL apunta hacia adentro de la zona (derecha-abajo), BR contraria. */
   .line {
     position: absolute;
-    background: rgba(120, 255, 140, 0.9);
+    background: rgba(120, 255, 140, 0.95);
     pointer-events: none;
+    border-radius: 1px;
+    box-shadow: 0 0 4px rgba(120, 255, 140, 0.5);
   }
-  .line.h {
-    left: 0;
-    right: 0;
-    top: 50%;
-    height: 1px;
-    transform: translateY(-0.5px);
-  }
-  .line.v {
-    top: 0;
-    bottom: 0;
+  /* Largo y grosor de cada brazo de la L. */
+  .line.h { height: 4px; width: 26px; }
+  .line.v { width: 4px; height: 26px; }
+
+  /* TL: horizontal va a la DERECHA desde el centro,
+         vertical va hacia ABAJO desde el centro. */
+  .bracket.tl .line.h {
     left: 50%;
-    width: 1px;
-    transform: translateX(-0.5px);
+    top: 50%;
+    transform: translateY(-50%);
   }
+  .bracket.tl .line.v {
+    top: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  /* BR: horizontal va a la IZQUIERDA desde el centro,
+         vertical va hacia ARRIBA desde el centro. */
+  .bracket.br .line.h {
+    right: 50%;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .bracket.br .line.v {
+    bottom: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  /* Punto en el vertice (intersection de las dos lineas). */
   .dot {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 7px;
-    height: 7px;
-    margin: -3.5px 0 0 -3.5px;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
     border: 1px solid rgba(0, 0, 0, 0.85);
-    background: rgba(120, 255, 140, 0.95);
+    background: rgba(120, 255, 140, 1);
     border-radius: 50%;
     pointer-events: none;
+    box-shadow: 0 0 6px rgba(120, 255, 140, 0.7);
   }
+  /* Tag (TL/BR) en el angulo interior de la L. */
   .tag {
     position: absolute;
-    top: calc(50% + 6px);
-    left: calc(50% + 6px);
     font: 9px/1.2 system-ui, sans-serif;
     color: rgba(255, 255, 255, 0.95);
     background: rgba(0, 0, 0, 0.7);
-    padding: 0 3px;
+    padding: 1px 4px;
     border-radius: 2px;
     pointer-events: none;
     user-select: none;
+  }
+  .bracket.tl .tag {
+    top: calc(50% + 8px);
+    left: calc(50% + 8px);
+  }
+  .bracket.br .tag {
+    bottom: calc(50% + 8px);
+    right: calc(50% + 8px);
   }
 </style>
