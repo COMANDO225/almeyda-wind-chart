@@ -3,6 +3,14 @@
 Este archivo lo lee Claude al inicio de cada sesión. **Para contexto técnico
 profundo (decisiones, bugs resueltos, aprendizajes), ver `CONTEXT.md`.**
 
+> 🧭 **Para retomar en otra máquina / sesión nueva, leer primero
+> [`docs/PROYECTO-CONTEXT.md`](docs/PROYECTO-CONTEXT.md)**: propósito y alcance
+> (trabajo de **seguridad web defensiva**, read-only, sobre un clon propio),
+> estado actual, arquitectura objetivo de **doble fuente de datos**
+> (CV externo + lectura interna), cómo **regenerar los datasets** (no
+> versionados, ~2.6 GB, se rehacen con `almeyda-wind-visor`) y la política de
+> git (todo a `main`).
+
 ## TL;DR
 
 **ai-dragonbound** es un overlay externo en Tauri que detecta el HUD del juego

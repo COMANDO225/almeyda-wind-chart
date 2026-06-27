@@ -62,3 +62,15 @@ assets/dataset/_debug/
 # --- Backups (mientras setup) ---
 *.backup
 *.backup.md
+
+# --- Pesados / regenerables que NUNCA van al repo ---
+# (el repo se mantiene liviano: solo código, modelos .onnx y labels. Los
+#  datasets de imagenes se REGENERAN con el visor `almeyda-wind-visor`.)
+*.mp4
+*.mov
+*.zip
+*.7z
+# Cualquier dataset sintetico nuevo bajo raw/ (excepto las capturas reales de
+# angulo, que se versionan por no ser reproducibles).
+assets/dataset/raw/*/
+!assets/dataset/raw/angle/
